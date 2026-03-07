@@ -1,15 +1,14 @@
-FROM php:8.2-apache
+FROM node:20-alpine
 
-RUN docker-php-ext-install pdo pdo_mysql mysqli
+WORKDIR /app
 
-RUN a2enmod rewrite headers
+# Install dependencies first (cached layer)
+COPY package.json ./
+RUN npm install --omit=dev
 
-RUN echo "ServerName localhost" >> /etc/apache2/apache2.conf
+# Copy source
+COPY src/ ./src/
 
-COPY apache.conf /etc/apache2/sites-available/000-default.conf
+EXPOSE 3001
 
-# Copy all PHP source into the image
-COPY public/ /var/www/html/public/
-COPY src/     /var/www/html/src/
-
-EXPOSE 80
+CMD ["node", "src/index.js"]

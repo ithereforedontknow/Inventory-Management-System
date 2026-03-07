@@ -11,6 +11,6 @@ export default {
   },
   plugins: [require("daisyui")],
   daisyui: {
-    themes: ["light", "dark", "cupcake", "corporate", "night", "dim", "black"],
+    themes: ["light", "dark"], // Only includes the standard light and dark themes
   },
 };

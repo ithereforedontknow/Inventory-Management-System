@@ -1,290 +1,255 @@
-import { useEffect, useState } from "react";
-import { api } from "../api";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Legend,
-  AreaChart,
-  Area,
-} from "recharts";
-import { TrendingUp, Package, AlertTriangle } from "lucide-react";
+import { useEffect, useState } from 'react'
+import { AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import { api } from '../api'
+import { TrendingUp, Package, Download, AlertTriangle, ShoppingCart } from 'lucide-react'
+import toast from 'react-hot-toast'
 
-const COLORS = ["#6366f1", "#f59e0b", "#10b981", "#f38ba8", "#89dceb"];
+const COLORS = ['#6366f1', '#f59e0b', '#10b981', '#f43f5e', '#8b5cf6', '#06b6d4']
 
 const CustomTooltip = ({ active, payload, label }) => {
   if (active && payload?.length) {
     return (
       <div className="bg-base-300 border border-base-content/10 rounded-xl p-3 text-sm">
         <p className="font-semibold mb-1 text-base-content/70">{label}</p>
-        {payload.map((p) => (
-          <p key={p.dataKey} style={{ color: p.color }} className="font-mono">
-            {p.name}: {p.value}
-          </p>
+        {payload.map(p => (
+          <p key={p.dataKey} style={{ color: p.color }} className="font-mono">{p.name}: {p.value}</p>
         ))}
       </div>
-    );
+    )
   }
-  return null;
-};
+  return null
+}
+
+function downloadCSV(url, filename) {
+  const token = localStorage.getItem('sp_token')
+  fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    .then(r => {
+      if (!r.ok) throw new Error('Export failed')
+      return r.blob()
+    })
+    .then(blob => {
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = filename
+      a.click()
+      toast.success('Download started')
+    })
+    .catch(() => toast.error('Export failed'))
+}
 
 export default function Reports() {
-  const [dashboard, setDashboard] = useState(null);
-  const [inventory, setInventory] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState(null)
+  const [inventory, setInventory] = useState([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    Promise.all([api.getDashboard(), api.getInventory({ limit: 100 })])
-      .then(([d, inv]) => {
-        setDashboard(d);
-        setInventory(inv.data);
-      })
-      .finally(() => setLoading(false));
-  }, []);
+    Promise.all([
+      api.getDashboard(),
+      api.getInventory({ limit: 100 }),
+    ]).then(([dash, inv]) => {
+      setData(dash)
+      setInventory(inv.data)
+    }).finally(() => setLoading(false))
+  }, [])
 
-  if (loading)
-    return (
-      <div className="flex items-center justify-center h-full min-h-screen">
-        <span className="loading loading-spinner loading-lg text-primary"></span>
-      </div>
-    );
+  if (loading) return (
+    <div className="flex items-center justify-center min-h-[50vh]">
+      <span className="loading loading-spinner loading-lg text-primary"/>
+    </div>
+  )
 
-  // Monthly chart data
-  const monthlyData = (() => {
-    if (!dashboard?.monthly_stats?.length) return [];
-    const map = {};
-    for (const s of dashboard.monthly_stats) {
-      if (!map[s.month]) map[s.month] = { month: s.month };
-      map[s.month][s.transaction_type] = parseInt(s.total);
+  const chartData = (() => {
+    if (!data?.monthly_stats?.length) return []
+    const map = {}
+    for (const s of data.monthly_stats) {
+      if (!map[s.month]) map[s.month] = { month: s.month }
+      map[s.month][s.transaction_type] = parseInt(s.total)
     }
-    return Object.values(map);
-  })();
+    return Object.values(map)
+  })()
 
-  // Top items by sales
-  const topSales = [...inventory]
-    .filter((i) => parseInt(i.total_sold) > 0)
+  // Top selling items — by total_sold descending
+  const topSelling = [...inventory]
+    .filter(i => parseInt(i.total_sold) > 0)
     .sort((a, b) => parseInt(b.total_sold) - parseInt(a.total_sold))
-    .slice(0, 8);
+    .slice(0, 8)
+    .map(i => ({ name: i.name, sold: parseInt(i.total_sold), purchased: parseInt(i.total_purchased) }))
 
-  // Pie: purchased vs sold
-  const pieData = [
-    {
-      name: "In Stock",
-      value: inventory.reduce(
-        (s, i) => s + Math.max(0, parseInt(i.count_ending || 0)),
-        0,
-      ),
-    },
-    { name: "Sold", value: parseInt(dashboard?.total_sold || 0) },
-  ];
+  // Pie chart — current stock distribution (ending count, positive only)
+  const pieData = inventory
+    .filter(i => parseInt(i.count_ending) > 0)
+    .map(i => ({ name: i.name, value: parseInt(i.count_ending) }))
 
-  // Low stock items
-  const lowStockItems = inventory.filter(
-    (i) =>
-      i.reorder_point > 0 &&
-      parseInt(i.count_ending) <= parseInt(i.reorder_point),
-  );
+  // Low stock items needing reorder
+  const lowStock = inventory
+    .filter(i => parseFloat(i.reorder_point) > 0 && parseInt(i.count_ending) <= parseFloat(i.reorder_point))
+    .map(i => ({
+      ...i,
+      suggested_order: Math.max(0, Math.ceil(parseFloat(i.reorder_point) * 2 - parseInt(i.count_ending))),
+    }))
+    .sort((a, b) => parseInt(a.count_ending) - parseInt(b.count_ending))
+
+  const negStock = inventory.filter(i => parseInt(i.count_ending) < 0)
 
   return (
-    <div className="p-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-black tracking-tight">Reports</h1>
-        <p className="text-base-content/50 mt-1 font-mono text-sm">
-          Analytics & inventory insights
-        </p>
+    <div className="p-4 sm:p-6 lg:p-8">
+      {/* Header */}
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight">Reports</h1>
+          <p className="text-base-content/50 mt-1 font-mono text-xs sm:text-sm">Analytics & exports</p>
+        </div>
+        {/* Export buttons */}
+        <div className="flex gap-2">
+          <button className="btn btn-ghost btn-sm gap-1.5"
+            onClick={() => downloadCSV('/api/export/inventory', `inventory_${new Date().toISOString().slice(0,10)}.csv`)}>
+            <Download size={13}/><span className="hidden sm:inline">Inventory CSV</span><span className="sm:hidden">Inv.</span>
+          </button>
+          <button className="btn btn-ghost btn-sm gap-1.5"
+            onClick={() => downloadCSV('/api/export/transactions', `transactions_${new Date().toISOString().slice(0,10)}.csv`)}>
+            <Download size={13}/><span className="hidden sm:inline">Transactions CSV</span><span className="sm:hidden">Tx.</span>
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
-        {/* Monthly Trend */}
-        <div className="glass-card p-6">
-          <h2 className="text-lg font-bold mb-1">Monthly Trend</h2>
-          <p className="text-sm text-base-content/40 mb-5">
-            Purchases vs Sales over time
-          </p>
-          {monthlyData.length > 0 ? (
+      {/* Negative stock alert */}
+      {negStock.length > 0 && (
+        <div className="alert alert-error mb-4 text-sm">
+          <AlertTriangle size={16}/>
+          <span>
+            <strong>{negStock.length} item{negStock.length > 1 ? 's have' : ' has'} negative stock:</strong>{' '}
+            {negStock.map(i => i.name).join(', ')}. Check your transaction records.
+          </span>
+        </div>
+      )}
+
+      {/* Trend chart */}
+      <div className="glass-card p-4 sm:p-6 mb-4">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base sm:text-lg font-bold flex items-center gap-2"><TrendingUp size={16} className="text-primary"/>Monthly Trend</h2>
+          <span className="badge badge-outline badge-sm font-mono">Last 6 months</span>
+        </div>
+        {chartData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={chartData}>
+              <defs>
+                <linearGradient id="gPurchased" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                </linearGradient>
+                <linearGradient id="gSold" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="#f59e0b" stopOpacity={0}/>
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="month" tick={{ fill: '#6c7086', fontSize: 11, fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false}/>
+              <YAxis tick={{ fill: '#6c7086', fontSize: 11, fontFamily: 'JetBrains Mono' }} axisLine={false} tickLine={false} width={35}/>
+              <Tooltip content={<CustomTooltip/>}/>
+              <Legend wrapperStyle={{ fontFamily: 'Syne', fontSize: 12 }}/>
+              <Area type="monotone" dataKey="Purchased" stroke="#6366f1" fill="url(#gPurchased)" strokeWidth={2}/>
+              <Area type="monotone" dataKey="Sold"      stroke="#f59e0b" fill="url(#gSold)"      strokeWidth={2}/>
+            </AreaChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="flex items-center justify-center h-40 text-base-content/30">
+            <div className="text-center"><Package size={32} className="mx-auto mb-2 opacity-30"/><p className="text-sm">No data yet</p></div>
+          </div>
+        )}
+      </div>
+
+      {/* Top selling + Pie */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4">
+        <div className="glass-card p-4 sm:p-6">
+          <h2 className="text-base sm:text-lg font-bold mb-4 flex items-center gap-2">
+            <ShoppingCart size={16} className="text-secondary"/>Top Selling Items
+          </h2>
+          {topSelling.length > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={monthlyData}>
-                <defs>
-                  <linearGradient id="gpurch" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="gsold" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis
-                  dataKey="month"
-                  tick={{
-                    fill: "#6c7086",
-                    fontSize: 11,
-                    fontFamily: "JetBrains Mono",
-                  }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{
-                    fill: "#6c7086",
-                    fontSize: 11,
-                    fontFamily: "JetBrains Mono",
-                  }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip content={<CustomTooltip />} />
-                <Area
-                  type="monotone"
-                  dataKey="Purchased"
-                  stroke="#6366f1"
-                  fill="url(#gpurch)"
-                  strokeWidth={2}
-                  name="Purchased"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="Sold"
-                  stroke="#f59e0b"
-                  fill="url(#gsold)"
-                  strokeWidth={2}
-                  name="Sold"
-                />
-              </AreaChart>
+              <BarChart data={topSelling} layout="vertical" barGap={2}>
+                <XAxis type="number" tick={{ fill: '#6c7086', fontSize: 11 }} axisLine={false} tickLine={false}/>
+                <YAxis type="category" dataKey="name" tick={{ fill: '#6c7086', fontSize: 11 }} axisLine={false} tickLine={false} width={80}/>
+                <Tooltip content={<CustomTooltip/>}/>
+                <Bar dataKey="sold" name="Sold" fill="#f59e0b" radius={[0,4,4,0]}/>
+              </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="flex items-center justify-center h-52 text-base-content/30 text-sm">
-              No data available
+            <div className="flex items-center justify-center h-40 text-base-content/30">
+              <p className="text-sm">No sales recorded yet</p>
             </div>
           )}
         </div>
 
-        {/* Stock Distribution Pie */}
-        <div className="glass-card p-6">
-          <h2 className="text-lg font-bold mb-1">Stock Distribution</h2>
-          <p className="text-sm text-base-content/40 mb-5">
-            Current stock vs total sold
-          </p>
-          <ResponsiveContainer width="100%" height={240}>
-            <PieChart>
-              <Pie
-                data={pieData}
-                cx="50%"
-                cy="50%"
-                innerRadius={60}
-                outerRadius={90}
-                paddingAngle={4}
-                dataKey="value"
-                label={({ name, percent }) =>
-                  `${name} ${(percent * 100).toFixed(0)}%`
-                }
-                labelLine={false}
-              >
-                {pieData.map((_, i) => (
-                  <Cell key={i} fill={COLORS[i]} />
-                ))}
-              </Pie>
-              {/* <Tooltip
-                formatter={(v) => v.toLocaleString()}
-                contentStyle={{
-                  background: "#232338",
-                  border: "1px solid #2a2a40",
-                  borderRadius: 12,
-                }}
-              />*/}
-            </PieChart>
-          </ResponsiveContainer>
+        <div className="glass-card p-4 sm:p-6">
+          <h2 className="text-base sm:text-lg font-bold mb-4 flex items-center gap-2">
+            <Package size={16} className="text-primary"/>Current Stock Distribution
+          </h2>
+          {pieData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label={({ name, percent }) => `${name} ${(percent*100).toFixed(0)}%`} labelLine={false}>
+                  {pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]}/>)}
+                </Pie>
+                <Tooltip formatter={(v, n) => [v, n]}/>
+              </PieChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-40 text-base-content/30">
+              <p className="text-sm">No stock data</p>
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* Top Selling Items */}
-        <div className="glass-card p-6">
-          <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-            <TrendingUp size={18} className="text-primary" /> Top Selling Items
-          </h2>
-          {topSales.length > 0 ? (
-            <div className="space-y-3">
-              {topSales.map((item, idx) => {
-                const maxSold = parseInt(topSales[0]?.total_sold || 1);
-                const pct = (parseInt(item.total_sold) / maxSold) * 100;
-                return (
-                  <div key={item.id} className="flex items-center gap-3">
-                    <span className="font-mono text-xs text-base-content/30 w-5">
-                      {idx + 1}
-                    </span>
-                    <div className="flex-1">
-                      <div className="flex justify-between text-sm mb-1">
-                        <span className="font-medium">{item.name}</span>
-                        <span className="font-mono text-secondary font-bold">
-                          {item.total_sold}
-                        </span>
-                      </div>
-                      <div className="h-1.5 bg-base-300 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-secondary rounded-full transition-all"
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="text-center text-base-content/30 py-8 text-sm">
-              No sales data yet
-            </div>
-          )}
-        </div>
+      {/* Reorder suggestions */}
+      <div className="glass-card p-4 sm:p-6">
+        <h2 className="text-base sm:text-lg font-bold mb-1 flex items-center gap-2">
+          <AlertTriangle size={16} className="text-warning"/>Reorder Suggestions
+        </h2>
+        <p className="text-xs text-base-content/40 font-mono mb-4">Items where ending stock ≤ reorder point</p>
 
-        {/* Low Stock Alerts */}
-        <div className="glass-card p-6">
-          <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
-            <AlertTriangle size={18} className="text-error" />
-            Low Stock Alerts
-            {lowStockItems.length > 0 && (
-              <span className="badge badge-error badge-sm ml-1">
-                {lowStockItems.length}
-              </span>
-            )}
-          </h2>
-          {lowStockItems.length > 0 ? (
-            <div className="space-y-2 max-h-72 overflow-y-auto">
-              {lowStockItems.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-center justify-between p-3 bg-error/10 border border-error/20 rounded-xl"
-                >
-                  <div>
-                    <div className="font-semibold text-sm">{item.name}</div>
-                    <div className="text-xs text-base-content/50 font-mono">
-                      Reorder at: {item.reorder_point}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-2xl font-black text-error num">
-                      {parseInt(item.count_ending || 0)}
-                    </div>
-                    <div className="text-xs text-base-content/50">in stock</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-center text-base-content/30 py-8">
-              <Package size={32} className="mx-auto mb-2 opacity-30" />
-              <p className="text-sm">All items are well-stocked</p>
-            </div>
-          )}
-        </div>
+        {lowStock.length === 0 ? (
+          <div className="text-center py-8 text-base-content/30">
+            <Package size={32} className="mx-auto mb-2 opacity-30"/>
+            <p className="text-sm">All items are sufficiently stocked</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="table table-sm">
+              <thead>
+                <tr className="bg-base-300/50 text-base-content/60 text-xs uppercase tracking-wider">
+                  <th>Item</th>
+                  <th className="text-right">Current Stock</th>
+                  <th className="text-right">Reorder Point</th>
+                  <th className="text-right">Safety Stock</th>
+                  <th className="text-right">Lead Time</th>
+                  <th className="text-right text-warning">Suggested Order</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lowStock.map(item => (
+                  <tr key={item.id} className="hover">
+                    <td>
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-lg bg-warning/20 flex items-center justify-center">
+                          <AlertTriangle size={11} className="text-warning"/>
+                        </div>
+                        <span className="font-semibold text-sm">{item.name}</span>
+                      </div>
+                    </td>
+                    <td className={`text-right font-mono font-bold text-sm ${parseInt(item.count_ending) < 0 ? 'text-error' : 'text-warning'}`}>
+                      {parseInt(item.count_ending)}
+                    </td>
+                    <td className="text-right font-mono text-sm text-primary">{parseFloat(item.reorder_point).toFixed(0)}</td>
+                    <td className="text-right font-mono text-sm text-base-content/60">{parseFloat(item.safety_stock).toFixed(0)}</td>
+                    <td className="text-right font-mono text-sm text-base-content/60">{item.lead_time}d</td>
+                    <td className="text-right font-mono font-bold text-sm text-warning">{item.suggested_order} units</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
-  );
+  )
 }

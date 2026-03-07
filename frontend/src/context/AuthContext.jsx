@@ -1,38 +1,32 @@
 import { createContext, useContext, useState, useEffect } from 'react'
+import { api } from '../api'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null)
-  const [token, setToken] = useState(() => localStorage.getItem('sp_token'))
-  const [loading, setLoading] = useState(true)
+  const [user, setUser] = useState(undefined) // undefined = loading, null = not logged in
 
   useEffect(() => {
-    if (!token) { setLoading(false); return }
-    fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then(data => setUser(data))
-      .catch(() => { localStorage.removeItem('sp_token'); setToken(null) })
-      .finally(() => setLoading(false))
-  }, [token])
+    const token = localStorage.getItem('sp_token')
+    if (!token) { setUser(null); return }
+    api.me().then(setUser).catch(() => {
+      localStorage.removeItem('sp_token')
+      setUser(null)
+    })
+  }, [])
 
-  const login = (newToken, userData) => {
-    localStorage.setItem('sp_token', newToken)
-    setToken(newToken)
-    setUser(userData)
+  async function login(username, password) {
+    const res = await api.login({ username, password })
+    localStorage.setItem('sp_token', res.token)
+    setUser(res.user)
   }
 
-  const logout = () => {
+  function logout() {
     localStorage.removeItem('sp_token')
-    setToken(null)
     setUser(null)
   }
 
-  return (
-    <AuthContext.Provider value={{ user, token, login, logout, loading }}>
-      {children}
-    </AuthContext.Provider>
-  )
+  return <AuthContext.Provider value={{ user, login, logout }}>{children}</AuthContext.Provider>
 }
 
 export const useAuth = () => useContext(AuthContext)

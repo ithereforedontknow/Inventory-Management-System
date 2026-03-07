@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   db:
     image: mysql:8.0
@@ -13,12 +11,20 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     volumes:
       - db_data:/var/lib/mysql
-      - ./backend/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
-    # Not exposed externally — only accessible within Docker network
     expose:
       - "3306"
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-u",
+          "root",
+          "-p${MYSQL_ROOT_PASSWORD}",
+        ]
       timeout: 10s
       retries: 10
       interval: 5s
@@ -39,12 +45,20 @@ services:
       JWT_EXPIRY_HOURS: ${JWT_EXPIRY_HOURS}
       APP_ENV: ${APP_ENV}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
-    # Backend not exposed externally — frontend proxy is the only entry point
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-Admin1234}
+      PORT: 3001
     expose:
-      - "80"
+      - "3001"
     depends_on:
       db:
         condition: service_healthy
+    develop:
+      watch:
+        - action: sync+restart
+          path: ./backend
+          target: /app # Adjust this to your WORKDIR in backend Dockerfile
+          ignore:
+            - node_modules/
 
   frontend:
     build: ./frontend
@@ -54,6 +68,15 @@ services:
       - "3000:80"
     depends_on:
       - backend
+    develop:
+      watch:
+        - action: sync
+          path: ./frontend/src
+          target: /app/src # Adjust based on where your source code lives in the container
+          ignore:
+            - node_modules/
+        - action: rebuild
+          path: ./frontend/package.json
 
 volumes:
   db_data:

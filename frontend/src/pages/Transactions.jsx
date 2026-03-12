@@ -1,96 +1,179 @@
-import { useEffect, useState, useCallback } from 'react'
-import { api } from '../api'
-import toast from 'react-hot-toast'
-import { Plus, ArrowUpRight, ArrowDownRight, Trash2, Edit2, X, ChevronLeft, ChevronRight, Filter, RefreshCw, Download } from 'lucide-react'
-import { format } from 'date-fns'
-import { useValidation, rules } from '../hooks/useValidation'
-import { FieldError, ConfirmModal } from '../components/FormComponents'
+import { useEffect, useState, useCallback } from "react";
+import { api } from "../api";
+import toast from "react-hot-toast";
+import {
+  Plus,
+  ArrowUpRight,
+  ArrowDownRight,
+  Trash2,
+  Edit2,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  RefreshCw,
+  Download,
+} from "lucide-react";
+import { format } from "date-fns";
+import { useValidation, rules } from "../hooks/useValidation";
+import { FieldError, ConfirmModal } from "../components/FormComponents";
 
 const EMPTY_FORM = {
-  inventory_id: '', date: format(new Date(), 'yyyy-MM-dd'),
-  transaction_type: 'Purchased', quantity: '', invoice_number: '', notes: '',
-}
+  inventory_id: "",
+  date: format(new Date(), "yyyy-MM-dd"),
+  transaction_type: "Purchased",
+  quantity: "",
+  invoice_number: "",
+  notes: "",
+};
 
 const txRules = {
-  inventory_id:     (v) => !v ? 'Please select an inventory item' : null,
-  transaction_type: rules.oneOf(['Purchased', 'Sold', 'Adjustment'], 'Transaction type'),
-  date:             (v) => rules.required('Date')(v) || rules.dateFormat('Date')(v),
-  quantity:         (v) => rules.required('Quantity')(v) || rules.positiveInt('Quantity')(v),
-  invoice_number:   rules.maxLength(100, 'Invoice number'),
-  notes:            rules.maxLength(1000, 'Notes'),
-}
+  inventory_id: (v) => (!v ? "Please select an inventory item" : null),
+  transaction_type: rules.oneOf(
+    ["Purchased", "Sold", "Adjustment"],
+    "Transaction type",
+  ),
+  date: (v) => rules.required("Date")(v) || rules.dateFormat("Date")(v),
+  quantity: (v) =>
+    rules.required("Quantity")(v) || rules.positiveInt("Quantity")(v),
+  invoice_number: rules.maxLength(100, "Invoice number"),
+  notes: rules.maxLength(1000, "Notes"),
+};
 
 const TYPE_STYLE = {
-  Purchased:  { cls: 'bg-primary/10 text-primary border-primary/20',   icon: ArrowUpRight,   label: 'Purchased' },
-  Sold:       { cls: 'bg-secondary/10 text-secondary border-secondary/20', icon: ArrowDownRight, label: 'Sold' },
-  Adjustment: { cls: 'bg-info/10 text-info border-info/20',             icon: RefreshCw,      label: 'Adjustment' },
-}
+  Purchased: {
+    cls: "bg-primary/10 text-primary border-primary/20",
+    icon: ArrowUpRight,
+    label: "Purchased",
+  },
+  Sold: {
+    cls: "bg-secondary/10 text-secondary border-secondary/20",
+    icon: ArrowDownRight,
+    label: "Sold",
+  },
+  Adjustment: {
+    cls: "bg-info/10 text-info border-info/20",
+    icon: RefreshCw,
+    label: "Adjustment",
+  },
+};
 
 function TypeBadge({ type, size = 10 }) {
-  const s = TYPE_STYLE[type] || TYPE_STYLE.Purchased
-  const Icon = s.icon
+  const s = TYPE_STYLE[type] || TYPE_STYLE.Purchased;
+  const Icon = s.icon;
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-bold border ${s.cls}`}>
-      <Icon size={size}/>{s.label}
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-bold border ${s.cls}`}
+    >
+      <Icon size={size} />
+      {s.label}
     </span>
-  )
+  );
 }
 
 function TransactionModal({ tx, onClose, onSaved }) {
-  const [form, setForm] = useState(tx
-    ? { ...tx, date: tx.date?.substring(0, 10) }
-    : { ...EMPTY_FORM })
-  const [inventoryList, setInventoryList] = useState([])
-  const [saving, setSaving] = useState(false)
-  const { errors, validate, clearField, applyServerErrors } = useValidation(txRules)
+  const [form, setForm] = useState(
+    tx ? { ...tx, date: tx.date?.substring(0, 10) } : { ...EMPTY_FORM },
+  );
+  const [inventoryList, setInventoryList] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const { errors, validate, clearField, applyServerErrors } =
+    useValidation(txRules);
 
-  useEffect(() => { api.getInventory({ limit: 200 }).then(r => setInventoryList(r.data)) }, [])
+  useEffect(() => {
+    api.getInventory({ limit: 200 }).then((r) => setInventoryList(r.data));
+  }, []);
 
-  const set = (key, val) => { setForm(f => ({ ...f, [key]: val })); clearField(key) }
+  const set = (key, val) => {
+    setForm((f) => ({ ...f, [key]: val }));
+    clearField(key);
+  };
 
   async function handleSubmit(e) {
-    e.preventDefault()
-    if (!validate(form)) return
-    setSaving(true)
+    e.preventDefault();
+    if (!validate(form)) return;
+    setSaving(true);
     try {
-      if (tx?.id) { await api.updateTransaction(tx.id, form); toast.success('Transaction updated') }
-      else { await api.createTransaction(form); toast.success('Transaction recorded') }
-      onSaved(); onClose()
+      if (tx?.id) {
+        await api.updateTransaction(tx.id, form);
+        toast.success("Transaction updated");
+      } else {
+        await api.createTransaction(form);
+        toast.success("Transaction recorded");
+      }
+      onSaved();
+      onClose();
     } catch (err) {
-      if (err.validationErrors) applyServerErrors(err.validationErrors)
-      else toast.error(err.message)
-    } finally { setSaving(false) }
+      if (err.validationErrors) applyServerErrors(err.validationErrors);
+      else toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <div className="modal modal-open">
       <div className="modal-box bg-base-200 border border-base-300 w-full max-w-lg mx-0 sm:mx-auto rounded-none sm:rounded-2xl h-full sm:h-auto max-h-full sm:max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-5">
-          <h3 className="font-black text-lg">{tx?.id ? 'Edit Transaction' : 'New Transaction'}</h3>
-          <button className="btn btn-ghost btn-sm btn-circle" onClick={onClose}><X size={16}/></button>
+          <h3 className="font-black text-lg">
+            {tx?.id ? "Edit Transaction" : "New Transaction"}
+          </h3>
+          <button className="btn btn-ghost btn-sm btn-circle" onClick={onClose}>
+            <X size={16} />
+          </button>
         </div>
-        <form onSubmit={handleSubmit} noValidate className="space-y-3 sm:space-y-4">
+        <form
+          onSubmit={handleSubmit}
+          noValidate
+          className="space-y-3 sm:space-y-4"
+        >
           <div className="form-control">
-            <label className="label pb-1"><span className="label-text text-base-content/70 text-sm">Inventory Item *</span></label>
-            <select className={`select select-bordered select-sm sm:select-md bg-base-300 focus:border-primary ${errors.inventory_id ? 'select-error' : ''}`}
-              value={form.inventory_id} onChange={e => set('inventory_id', e.target.value)}>
+            <label className="label pb-1">
+              <span className="label-text text-base-content/70 text-sm">
+                Inventory Item *
+              </span>
+            </label>
+            <select
+              className={`select select-bordered select-sm sm:select-md bg-base-300 focus:border-primary ${errors.inventory_id ? "select-error" : ""}`}
+              value={form.inventory_id}
+              onChange={(e) => set("inventory_id", e.target.value)}
+            >
               <option value="">Select item...</option>
-              {inventoryList.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+              {inventoryList.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.name}
+                </option>
+              ))}
             </select>
-            <FieldError error={errors.inventory_id}/>
+            <FieldError error={errors.inventory_id} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div className="form-control">
-              <label className="label pb-1"><span className="label-text text-base-content/70 text-sm">Date *</span></label>
-              <input type="date" className={`input input-bordered input-sm sm:input-md bg-base-300 focus:border-primary ${errors.date ? 'input-error' : ''}`}
-                value={form.date} onChange={e => set('date', e.target.value)}/>
-              <FieldError error={errors.date}/>
+              <label className="label pb-1">
+                <span className="label-text text-base-content/70 text-sm">
+                  Date *
+                </span>
+              </label>
+              <input
+                type="date"
+                className={`input input-bordered input-sm sm:input-md bg-base-300 focus:border-primary ${errors.date ? "input-error" : ""}`}
+                value={form.date}
+                onChange={(e) => set("date", e.target.value)}
+              />
+              <FieldError error={errors.date} />
             </div>
             <div className="form-control">
-              <label className="label pb-1"><span className="label-text text-base-content/70 text-sm">Type *</span></label>
-              <select className="select select-bordered select-sm sm:select-md bg-base-300 focus:border-primary"
-                value={form.transaction_type} onChange={e => set('transaction_type', e.target.value)}>
+              <label className="label pb-1">
+                <span className="label-text text-base-content/70 text-sm">
+                  Type *
+                </span>
+              </label>
+              <select
+                className="select select-bordered select-sm sm:select-md bg-base-300 focus:border-primary"
+                value={form.transaction_type}
+                onChange={(e) => set("transaction_type", e.target.value)}
+              >
                 <option value="Purchased">Purchased</option>
                 <option value="Sold">Sold</option>
                 <option value="Adjustment">Adjustment</option>
@@ -98,120 +181,192 @@ function TransactionModal({ tx, onClose, onSaved }) {
             </div>
           </div>
 
-          {form.transaction_type === 'Adjustment' && (
+          {form.transaction_type === "Adjustment" && (
             <div className="bg-info/10 border border-info/20 rounded-xl p-3 text-xs text-info/80">
-              Use <strong>Adjustment</strong> for corrections, damage, shrinkage, or opening stock changes. Positive quantity adds stock, negative removes it — enter a positive number and the system records it as a reduction.
+              Use <strong>Adjustment</strong> for corrections, damage,
+              shrinkage, or opening stock changes. Positive quantity adds stock,
+              negative removes it — enter a positive number and the system
+              records it as a reduction.
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="form-control">
-              <label className="label pb-1"><span className="label-text text-base-content/70 text-sm">Quantity *</span></label>
-              <input type="number" min="1" className={`input input-bordered input-sm sm:input-md bg-base-300 focus:border-primary ${errors.quantity ? 'input-error' : ''}`}
-                value={form.quantity} onChange={e => set('quantity', e.target.value)} placeholder="Min: 1"/>
-              <FieldError error={errors.quantity}/>
+              <label className="label pb-1">
+                <span className="label-text text-base-content/70 text-sm">
+                  Quantity *
+                </span>
+              </label>
+              <input
+                type="number"
+                min="1"
+                className={`input input-bordered input-sm sm:input-md bg-base-300 focus:border-primary ${errors.quantity ? "input-error" : ""}`}
+                value={form.quantity}
+                onChange={(e) => set("quantity", e.target.value)}
+                placeholder="Min: 1"
+              />
+              <FieldError error={errors.quantity} />
             </div>
             <div className="form-control">
-              <label className="label pb-1"><span className="label-text text-base-content/70 text-sm">Invoice #</span></label>
-              <input type="text" className={`input input-bordered input-sm sm:input-md bg-base-300 font-mono focus:border-primary ${errors.invoice_number ? 'input-error' : ''}`}
-                value={form.invoice_number} onChange={e => set('invoice_number', e.target.value)} placeholder="Optional"/>
-              <FieldError error={errors.invoice_number}/>
+              <label className="label pb-1">
+                <span className="label-text text-base-content/70 text-sm">
+                  Invoice #
+                </span>
+              </label>
+              <input
+                type="text"
+                className={`input input-bordered input-sm sm:input-md bg-base-300 font-mono focus:border-primary ${errors.invoice_number ? "input-error" : ""}`}
+                value={form.invoice_number}
+                onChange={(e) => set("invoice_number", e.target.value)}
+                placeholder="Optional"
+              />
+              <FieldError error={errors.invoice_number} />
             </div>
           </div>
 
           <div className="form-control">
-            <label className="label pb-1"><span className="label-text text-base-content/70 text-sm">Notes</span></label>
-            <textarea rows={2} className={`textarea textarea-bordered textarea-sm sm:textarea-md bg-base-300 resize-none focus:border-primary ${errors.notes ? 'textarea-error' : ''}`}
-              value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Optional notes..."/>
-            <FieldError error={errors.notes}/>
+            <label className="label pb-1">
+              <span className="label-text text-base-content/70 text-sm">
+                Notes
+              </span>
+            </label>
+            <textarea
+              rows={2}
+              className={`textarea textarea-bordered textarea-sm sm:textarea-md bg-base-300 resize-none focus:border-primary ${errors.notes ? "textarea-error" : ""}`}
+              value={form.notes}
+              onChange={(e) => set("notes", e.target.value)}
+              placeholder="Optional notes..."
+            />
+            <FieldError error={errors.notes} />
           </div>
 
           <div className="flex justify-end gap-3 pt-1">
-            <button type="button" className="btn btn-ghost btn-sm sm:btn-md" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary btn-sm sm:btn-md" disabled={saving}>
-              {saving && <span className="loading loading-spinner loading-sm"/>}
-              {tx?.id ? 'Update' : 'Record'}
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm sm:btn-md"
+              onClick={onClose}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="btn btn-primary btn-sm sm:btn-md"
+              disabled={saving}
+            >
+              {saving && (
+                <span className="loading loading-spinner loading-sm" />
+              )}
+              {tx?.id ? "Update" : "Record"}
             </button>
           </div>
         </form>
       </div>
       <div className="modal-backdrop" onClick={onClose}></div>
     </div>
-  )
+  );
 }
 
 function downloadCSV(url, filename) {
-  const token = localStorage.getItem('sp_token')
+  const token = localStorage.getItem("sp_token");
   fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-    .then(r => r.blob())
-    .then(blob => {
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
-      a.download = filename
-      a.click()
+    .then((r) => r.blob())
+    .then((blob) => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
     })
-    .catch(() => toast.error('Export failed'))
+    .catch(() => toast.error("Export failed"));
 }
 
 export default function Transactions() {
-  const [txs, setTxs]             = useState([])
-  const [total, setTotal]         = useState(0)
-  const [page, setPage]           = useState(1)
-  const [pages, setPages]         = useState(1)
-  const [typeFilter, setTypeFilter] = useState('')
-  const [dateFrom, setDateFrom]   = useState('')
-  const [dateTo, setDateTo]       = useState('')
-  const [loading, setLoading]     = useState(true)
-  const [modal, setModal]         = useState(null)
-  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [txs, setTxs] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [typeFilter, setTypeFilter] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   const fetchTxs = useCallback(async () => {
-    setLoading(true)
+    setLoading(true);
     try {
-      const params = { page, limit: 20 }
-      if (typeFilter) params.type      = typeFilter
-      if (dateFrom)   params.date_from = dateFrom
-      if (dateTo)     params.date_to   = dateTo
-      const res = await api.getTransactions(params)
-      setTxs(res.data); setTotal(res.total); setPages(res.pages)
-    } catch { toast.error('Failed to load transactions') }
-    finally { setLoading(false) }
-  }, [page, typeFilter, dateFrom, dateTo])
+      const params = { page, limit: 20 };
+      if (typeFilter) params.type = typeFilter;
+      if (dateFrom) params.date_from = dateFrom;
+      if (dateTo) params.date_to = dateTo;
+      const res = await api.getTransactions(params);
+      setTxs(res.data);
+      setTotal(res.total);
+      setPages(res.pages);
+    } catch {
+      toast.error("Failed to load transactions");
+    } finally {
+      setLoading(false);
+    }
+  }, [page, typeFilter, dateFrom, dateTo]);
 
-  useEffect(() => { fetchTxs() }, [fetchTxs])
-  useEffect(() => { setPage(1) }, [typeFilter, dateFrom, dateTo])
+  useEffect(() => {
+    fetchTxs();
+  }, [fetchTxs]);
+  useEffect(() => {
+    setPage(1);
+  }, [typeFilter, dateFrom, dateTo]);
 
   async function confirmDelete() {
     try {
-      await api.deleteTransaction(deleteTarget.id)
-      toast.success('Transaction deleted')
-      setDeleteTarget(null); fetchTxs()
-    } catch (err) { toast.error(err.message) }
+      await api.deleteTransaction(deleteTarget.id);
+      toast.success("Transaction deleted");
+      setDeleteTarget(null);
+      fetchTxs();
+    } catch (err) {
+      toast.error(err.message);
+    }
   }
 
   function exportCSV() {
-    const params = new URLSearchParams()
-    if (dateFrom) params.set('date_from', dateFrom)
-    if (dateTo)   params.set('date_to', dateTo)
-    const qs = params.toString()
-    downloadCSV(`/api/export/transactions${qs ? '?' + qs : ''}`, `transactions_${dateFrom || 'all'}.csv`)
+    const params = new URLSearchParams();
+    if (dateFrom) params.set("date_from", dateFrom);
+    if (dateTo) params.set("date_to", dateTo);
+    const qs = params.toString();
+    downloadCSV(
+      `/api/export/transactions${qs ? "?" + qs : ""}`,
+      `transactions_${dateFrom || "all"}.csv`,
+    );
   }
 
-  const hasFilters = typeFilter || dateFrom || dateTo
+  const hasFilters = typeFilter || dateFrom || dateTo;
 
   return (
     <div className="p-4 sm:p-6 lg:p-8">
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight">Transactions</h1>
-          <p className="text-base-content/50 mt-1 font-mono text-xs sm:text-sm">{total} records</p>
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
+            Transactions
+          </h1>
+          <p className="text-base-content/50 mt-1 font-mono text-xs sm:text-sm">
+            {total} records
+          </p>
         </div>
         <div className="flex gap-2">
-          <button className="btn btn-ghost btn-sm gap-1.5" onClick={exportCSV} title="Export to CSV">
-            <Download size={14}/><span className="hidden sm:inline">Export</span>
+          <button
+            className="btn btn-ghost btn-sm gap-1.5"
+            onClick={exportCSV}
+            title="Export to CSV"
+          >
+            <Download size={14} />
+            <span className="hidden sm:inline">Export</span>
           </button>
-          <button className="btn btn-primary btn-sm sm:btn-md gap-2" onClick={() => setModal('add')}>
-            <Plus size={15}/><span className="hidden sm:inline">New Transaction</span><span className="sm:hidden">New</span>
+          <button
+            className="btn btn-primary btn-sm sm:btn-md gap-2"
+            onClick={() => setModal("add")}
+          >
+            <Plus size={15} />
+            <span className="hidden sm:inline">New Transaction</span>
+            <span className="sm:hidden">New</span>
           </button>
         </div>
       </div>
@@ -220,26 +375,46 @@ export default function Transactions() {
       <div className="glass-card p-3 sm:p-4 mb-4 space-y-3">
         {/* Type pills */}
         <div className="flex items-center gap-2 flex-wrap">
-          <Filter size={13} className="text-base-content/40 flex-shrink-0"/>
-          {['', 'Purchased', 'Sold', 'Adjustment'].map(f => (
-            <button key={f} className={`btn btn-xs sm:btn-sm ${typeFilter === f ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => setTypeFilter(f)}>
-              {f || 'All'}
+          <Filter size={13} className="text-base-content/40 flex-shrink-0" />
+          {["", "Purchased", "Sold", "Adjustment"].map((f) => (
+            <button
+              key={f}
+              className={`btn btn-xs sm:btn-sm ${typeFilter === f ? "btn-primary" : "btn-ghost"}`}
+              onClick={() => setTypeFilter(f)}
+            >
+              {f || "All"}
             </button>
           ))}
         </div>
 
         {/* Date range */}
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-base-content/40 font-mono">Date range:</span>
-          <input type="date" className="input input-bordered input-xs sm:input-sm bg-base-300 focus:border-primary"
-            value={dateFrom} onChange={e => setDateFrom(e.target.value)}/>
+          <span className="text-xs text-base-content/40 font-mono">
+            Date range:
+          </span>
+          <input
+            type="date"
+            className="input input-bordered input-xs sm:input-sm bg-base-300 focus:border-primary"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+          />
           <span className="text-base-content/40 text-xs">to</span>
-          <input type="date" className="input input-bordered input-xs sm:input-sm bg-base-300 focus:border-primary"
-            value={dateTo} onChange={e => setDateTo(e.target.value)}/>
+          <input
+            type="date"
+            className="input input-bordered input-xs sm:input-sm bg-base-300 focus:border-primary"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+          />
           {hasFilters && (
-            <button className="btn btn-ghost btn-xs text-base-content/40" onClick={() => { setTypeFilter(''); setDateFrom(''); setDateTo('') }}>
-              <X size={12}/> Clear
+            <button
+              className="btn btn-ghost btn-xs text-base-content/40"
+              onClick={() => {
+                setTypeFilter("");
+                setDateFrom("");
+                setDateTo("");
+              }}
+            >
+              <X size={12} /> Clear
             </button>
           )}
         </div>
@@ -251,37 +426,88 @@ export default function Transactions() {
           <table className="table table-sm">
             <thead>
               <tr className="bg-base-300/50 text-base-content/60 text-xs uppercase tracking-wider font-semibold">
-                <th>Date</th><th>Item</th><th>Type</th><th className="text-right">Qty</th><th>Invoice #</th><th>Notes</th><th>Actions</th>
+                <th>Date</th>
+                <th>Item</th>
+                <th>Type</th>
+                <th className="text-right">Qty</th>
+                <th>Invoice #</th>
+                <th>Notes</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} className="text-center py-12"><span className="loading loading-spinner loading-md text-primary"/></td></tr>
-              ) : txs.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-12 text-base-content/30">
-                  <ArrowUpRight size={36} className="mx-auto mb-3 opacity-30"/><p>No transactions found</p>
-                </td></tr>
-              ) : txs.map(tx => (
-                <tr key={tx.id} className="hover">
-                  <td className="font-mono text-xs text-base-content/70">{tx.date?.substring(0,10)}</td>
-                  <td className="font-semibold text-sm">{tx.inventory_name}</td>
-                  <td><TypeBadge type={tx.transaction_type}/></td>
-                  <td className={`text-right font-mono font-bold text-sm ${
-                    tx.transaction_type === 'Purchased' ? 'text-primary' :
-                    tx.transaction_type === 'Sold' ? 'text-secondary' : 'text-info'
-                  }`}>
-                    {tx.transaction_type === 'Purchased' ? '+' : tx.transaction_type === 'Sold' ? '-' : '±'}{tx.quantity}
-                  </td>
-                  <td className="font-mono text-xs text-base-content/60">{tx.invoice_number || '—'}</td>
-                  <td className="text-xs text-base-content/60 max-w-xs truncate">{tx.notes || '—'}</td>
-                  <td>
-                    <div className="flex gap-1">
-                      <button className="btn btn-ghost btn-xs btn-circle hover:text-primary" onClick={() => setModal(tx)}><Edit2 size={13}/></button>
-                      <button className="btn btn-ghost btn-xs btn-circle hover:text-error" onClick={() => setDeleteTarget(tx)}><Trash2 size={13}/></button>
-                    </div>
+                <tr>
+                  <td colSpan={7} className="text-center py-12">
+                    <span className="loading loading-spinner loading-md text-primary" />
                   </td>
                 </tr>
-              ))}
+              ) : txs.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="text-center py-12 text-base-content/30"
+                  >
+                    <ArrowUpRight
+                      size={36}
+                      className="mx-auto mb-3 opacity-30"
+                    />
+                    <p>No transactions found</p>
+                  </td>
+                </tr>
+              ) : (
+                txs.map((tx) => (
+                  <tr key={tx.id} className="hover">
+                    <td className="font-mono text-xs text-base-content/70">
+                      {tx.date?.substring(0, 10)}
+                    </td>
+                    <td className="font-semibold text-sm">
+                      {tx.inventory_name}
+                    </td>
+                    <td>
+                      <TypeBadge type={tx.transaction_type} />
+                    </td>
+                    <td
+                      className={`text-right font-mono font-bold text-sm ${
+                        tx.transaction_type === "Purchased"
+                          ? "text-primary"
+                          : tx.transaction_type === "Sold"
+                            ? "text-secondary"
+                            : "text-info"
+                      }`}
+                    >
+                      {tx.transaction_type === "Purchased"
+                        ? "+"
+                        : tx.transaction_type === "Sold"
+                          ? "-"
+                          : "±"}
+                      {tx.quantity}
+                    </td>
+                    <td className="font-mono text-xs text-base-content/60">
+                      {tx.invoice_number || "—"}
+                    </td>
+                    <td className="text-xs text-base-content/60 max-w-xs truncate">
+                      {tx.notes || "—"}
+                    </td>
+                    <td>
+                      <div className="flex gap-1">
+                        <button
+                          className="btn btn-ghost btn-xs btn-circle hover:text-primary"
+                          onClick={() => setModal(tx)}
+                        >
+                          <Edit2 size={13} />
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-xs btn-circle hover:text-error"
+                          onClick={() => setDeleteTarget(tx)}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -290,49 +516,104 @@ export default function Transactions() {
       {/* Mobile cards */}
       <div className="md:hidden space-y-3">
         {loading ? (
-          <div className="text-center py-12"><span className="loading loading-spinner loading-md text-primary"/></div>
+          <div className="text-center py-12">
+            <span className="loading loading-spinner loading-md text-primary" />
+          </div>
         ) : txs.length === 0 ? (
           <div className="text-center py-12 text-base-content/30">
-            <ArrowUpRight size={36} className="mx-auto mb-3 opacity-30"/><p>No transactions found</p>
+            <ArrowUpRight size={36} className="mx-auto mb-3 opacity-30" />
+            <p>No transactions found</p>
           </div>
-        ) : txs.map(tx => (
-          <div key={tx.id} className="glass-card p-4">
-            <div className="flex items-start justify-between mb-2">
-              <div>
-                <div className="font-bold text-sm">{tx.inventory_name}</div>
-                <div className="font-mono text-xs text-base-content/50 mt-0.5">{tx.date?.substring(0,10)}</div>
+        ) : (
+          txs.map((tx) => (
+            <div key={tx.id} className="glass-card p-4">
+              <div className="flex items-start justify-between mb-2">
+                <div>
+                  <div className="font-bold text-sm">{tx.inventory_name}</div>
+                  <div className="font-mono text-xs text-base-content/50 mt-0.5">
+                    {tx.date?.substring(0, 10)}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  <TypeBadge type={tx.transaction_type} />
+                  <button
+                    className="btn btn-ghost btn-xs btn-circle hover:text-primary"
+                    onClick={() => setModal(tx)}
+                  >
+                    <Edit2 size={13} />
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-xs btn-circle hover:text-error"
+                    onClick={() => setDeleteTarget(tx)}
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-1">
-                <TypeBadge type={tx.transaction_type}/>
-                <button className="btn btn-ghost btn-xs btn-circle hover:text-primary" onClick={() => setModal(tx)}><Edit2 size={13}/></button>
-                <button className="btn btn-ghost btn-xs btn-circle hover:text-error" onClick={() => setDeleteTarget(tx)}><Trash2 size={13}/></button>
+              <div className="flex items-center justify-between">
+                <div
+                  className={`text-xl font-black num ${
+                    tx.transaction_type === "Purchased"
+                      ? "text-primary"
+                      : tx.transaction_type === "Sold"
+                        ? "text-secondary"
+                        : "text-info"
+                  }`}
+                >
+                  {tx.transaction_type === "Purchased"
+                    ? "+"
+                    : tx.transaction_type === "Sold"
+                      ? "-"
+                      : "±"}
+                  {tx.quantity}
+                </div>
+                {tx.invoice_number && (
+                  <div className="font-mono text-xs text-base-content/50">
+                    #{tx.invoice_number}
+                  </div>
+                )}
               </div>
+              {tx.notes && (
+                <div className="text-xs text-base-content/50 mt-2 truncate">
+                  {tx.notes}
+                </div>
+              )}
             </div>
-            <div className="flex items-center justify-between">
-              <div className={`text-xl font-black num ${
-                tx.transaction_type === 'Purchased' ? 'text-primary' :
-                tx.transaction_type === 'Sold' ? 'text-secondary' : 'text-info'
-              }`}>
-                {tx.transaction_type === 'Purchased' ? '+' : tx.transaction_type === 'Sold' ? '-' : '±'}{tx.quantity}
-              </div>
-              {tx.invoice_number && <div className="font-mono text-xs text-base-content/50">#{tx.invoice_number}</div>}
-            </div>
-            {tx.notes && <div className="text-xs text-base-content/50 mt-2 truncate">{tx.notes}</div>}
-          </div>
-        ))}
+          ))
+        )}
       </div>
 
       {pages > 1 && (
         <div className="flex items-center justify-between mt-4">
-          <span className="text-xs text-base-content/50 font-mono">Page {page} of {pages}</span>
+          <span className="text-xs text-base-content/50 font-mono">
+            Page {page} of {pages}
+          </span>
           <div className="join">
-            <button className="join-item btn btn-sm" disabled={page<=1} onClick={() => setPage(p=>p-1)}><ChevronLeft size={14}/></button>
-            <button className="join-item btn btn-sm" disabled={page>=pages} onClick={() => setPage(p=>p+1)}><ChevronRight size={14}/></button>
+            <button
+              className="join-item btn btn-sm"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => p - 1)}
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <button
+              className="join-item btn btn-sm"
+              disabled={page >= pages}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              <ChevronRight size={14} />
+            </button>
           </div>
         </div>
       )}
 
-      {modal && <TransactionModal tx={modal === 'add' ? null : modal} onClose={() => setModal(null)} onSaved={fetchTxs}/>}
+      {modal && (
+        <TransactionModal
+          tx={modal === "add" ? null : modal}
+          onClose={() => setModal(null)}
+          onSaved={fetchTxs}
+        />
+      )}
       {deleteTarget && (
         <ConfirmModal
           title="Delete Transaction"
@@ -343,5 +624,5 @@ export default function Transactions() {
         />
       )}
     </div>
-  )
+  );
 }

@@ -1,14 +1,19 @@
 const express = require("express");
 const pool = require("../db/pool");
 const { requireAuth } = require("../Middleware/auth");
-
 const router = express.Router();
 router.use(requireAuth);
 
 // Computed columns SQL — all stats derived live from transactions
 const WITH_STATS = `
   SELECT
-    i.id, i.name, i.count_beginning, i.lead_time, i.created_at, i.updated_at,
+    i.id,
+    i.name,
+    i.price,                    -- ← ADDED
+    i.count_beginning,
+    i.lead_time,
+    i.created_at,
+    i.updated_at,
     COALESCE((SELECT SUM(t.quantity) FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Purchased'), 0) AS total_purchased,
     COALESCE((SELECT SUM(t.quantity) FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Sold'), 0) AS total_sold,
     (
@@ -42,34 +47,25 @@ router.get("/", async (req, res) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || "20")));
     const offset = (page - 1) * limit;
 
-    // Build count query
     let countSql = "SELECT COUNT(*) as total FROM inventory_items i";
     const countParams = [];
-
     if (search) {
       countSql += " WHERE i.name LIKE ?";
       countParams.push(`%${search}%`);
     }
-
-    // Use query() instead of execute()
     const [countResult] = await pool.query(countSql, countParams);
     const total = countResult[0].total;
 
-    // Build data query
     let dataSql = WITH_STATS;
     const dataParams = [];
-
     if (search) {
       dataSql += " WHERE i.name LIKE ?";
       dataParams.push(`%${search}%`);
     }
-
     dataSql += " ORDER BY i.name LIMIT ? OFFSET ?";
     dataParams.push(parseInt(limit), parseInt(offset));
 
-    // Use query() instead of execute()
     const [rows] = await pool.query(dataSql, dataParams);
-
     res.json({
       data: rows,
       total,
@@ -100,14 +96,19 @@ router.get("/:id", async (req, res) => {
 // POST /api/inventory
 router.post("/", async (req, res) => {
   try {
-    const { name, count_beginning = 0, lead_time = 3 } = req.body;
+    const { name, price = 0, count_beginning = 0, lead_time = 3 } = req.body;
     const errors = {};
 
     if (!name?.trim()) errors.name = ["Name is required"];
     else if (name.trim().length > 255)
       errors.name = ["Name must be 255 characters or less"];
+
+    if (isNaN(price) || parseFloat(price) < 0)
+      errors.price = ["Price must be 0 or more"];
+
     if (isNaN(count_beginning) || parseInt(count_beginning) < 0)
       errors.count_beginning = ["Beginning count must be 0 or more"];
+
     if (
       !lead_time ||
       isNaN(lead_time) ||
@@ -129,8 +130,13 @@ router.post("/", async (req, res) => {
         .json({ errors: { name: ["An item with this name already exists"] } });
 
     const [result] = await pool.query(
-      "INSERT INTO inventory_items (name, count_beginning, lead_time) VALUES (?, ?, ?)",
-      [name.trim(), parseInt(count_beginning), parseInt(lead_time)],
+      "INSERT INTO inventory_items (name, price, count_beginning, lead_time) VALUES (?, ?, ?, ?)",
+      [
+        name.trim(),
+        parseFloat(price) || 0,
+        parseInt(count_beginning),
+        parseInt(lead_time),
+      ],
     );
 
     res.status(201).json({ id: result.insertId, message: "Item created" });
@@ -144,14 +150,19 @@ router.post("/", async (req, res) => {
 router.put("/:id", async (req, res) => {
   try {
     const id = parseInt(req.params.id);
-    const { name, count_beginning = 0, lead_time = 3 } = req.body;
+    const { name, price = 0, count_beginning = 0, lead_time = 3 } = req.body;
     const errors = {};
 
     if (!name?.trim()) errors.name = ["Name is required"];
     else if (name.trim().length > 255)
       errors.name = ["Name must be 255 characters or less"];
+
+    if (isNaN(price) || parseFloat(price) < 0)
+      errors.price = ["Price must be 0 or more"];
+
     if (isNaN(count_beginning) || parseInt(count_beginning) < 0)
       errors.count_beginning = ["Beginning count must be 0 or more"];
+
     if (
       !lead_time ||
       isNaN(lead_time) ||
@@ -178,8 +189,14 @@ router.put("/:id", async (req, res) => {
         .json({ errors: { name: ["An item with this name already exists"] } });
 
     await pool.query(
-      "UPDATE inventory_items SET name = ?, count_beginning = ?, lead_time = ? WHERE id = ?",
-      [name.trim(), parseInt(count_beginning), parseInt(lead_time), id],
+      "UPDATE inventory_items SET name = ?, price = ?, count_beginning = ?, lead_time = ? WHERE id = ?",
+      [
+        name.trim(),
+        parseFloat(price) || 0,
+        parseInt(count_beginning),
+        parseInt(lead_time),
+        id,
+      ],
     );
 
     res.json({ message: "Item updated" });

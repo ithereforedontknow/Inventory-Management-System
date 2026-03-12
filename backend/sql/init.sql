@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS inventory_items (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     name            VARCHAR(255) NOT NULL UNIQUE,
+    price           FLOAT(10,2) NOT NULL DEFAULT 0.00,
     count_beginning INT          NOT NULL DEFAULT 0,
     lead_time       INT          NOT NULL DEFAULT 3,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

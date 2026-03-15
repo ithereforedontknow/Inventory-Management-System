@@ -9,7 +9,7 @@ const WITH_STATS = `
   SELECT
     i.id,
     i.name,
-    i.price,                    -- ← ADDED
+    i.price,
     i.count_beginning,
     i.lead_time,
     i.created_at,

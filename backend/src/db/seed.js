@@ -90,11 +90,11 @@ async function seed() {
   );
   if (itemCount === 0) {
     await conn.execute(`
-      INSERT INTO inventory_items (name, count_beginning, lead_time) VALUES
-      ('Inventory 1', 100, 3),
-      ('Inventory 2', 100, 3),
-      ('Inventory 3', 100, 3),
-      ('Inventory 4', 100, 3)
+      INSERT INTO inventory_items (name, count_beginning, lead_time, price) VALUES
+      ('Inventory 1', 100, 3, 10.50),
+      ('Inventory 2', 100, 3, 25.00),
+      ('Inventory 3', 100, 3, 5.75),
+      ('Inventory 4', 100, 3, 15.20)
     `);
     await conn.execute(`
       INSERT INTO transactions (date, inventory_id, transaction_type, quantity, invoice_number) VALUES

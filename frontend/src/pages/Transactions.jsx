@@ -70,7 +70,6 @@ function TypeBadge({ type, size = 10 }) {
     </span>
   );
 }
-
 function TransactionModal({ tx, onClose, onSaved }) {
   const [form, setForm] = useState(
     tx ? { ...tx, date: tx.date?.substring(0, 10) } : { ...EMPTY_FORM },
@@ -147,6 +146,24 @@ function TransactionModal({ tx, onClose, onSaved }) {
             </select>
             <FieldError error={errors.inventory_id} />
           </div>
+
+          {form.transaction_type === "Purchased" && (
+            <div className="form-control">
+              <label className="label pb-1">
+                <span className="label-text text-base-content/70 text-sm">
+                  Supplier Name *
+                </span>
+              </label>
+              <input
+                type="text"
+                className={`input input-bordered input-sm sm:input-md bg-base-300 focus:border-primary ${errors.supplier_name ? "input-error" : ""}`}
+                value={form.supplier_name || ""}
+                onChange={(e) => set("supplier_name", e.target.value)}
+                placeholder="Supplier name"
+              />
+              <FieldError error={errors.supplier_name} />
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div className="form-control">
@@ -428,6 +445,7 @@ export default function Transactions() {
               <tr className="bg-base-300/50 text-base-content/60 text-xs uppercase tracking-wider font-semibold">
                 <th>Date</th>
                 <th>Item</th>
+                <th>Supplier</th>
                 <th>Type</th>
                 <th className="text-right">Qty</th>
                 <th>Invoice #</th>
@@ -438,14 +456,14 @@ export default function Transactions() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-12">
+                  <td colSpan={8} className="text-center py-12">
                     <span className="loading loading-spinner loading-md text-primary" />
                   </td>
                 </tr>
               ) : txs.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="text-center py-12 text-base-content/30"
                   >
                     <ArrowUpRight
@@ -461,8 +479,9 @@ export default function Transactions() {
                     <td className="font-mono text-xs text-base-content/70">
                       {tx.date?.substring(0, 10)}
                     </td>
-                    <td className="font-semibold text-sm">
-                      {tx.inventory_name}
+                    <td className="font-semibold text-sm">{tx.item_name}</td>
+                    <td className="text-xs text-base-content/60">
+                      {tx.supplier_name || "—"}
                     </td>
                     <td>
                       <TypeBadge type={tx.transaction_type} />

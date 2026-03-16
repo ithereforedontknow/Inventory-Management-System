@@ -312,9 +312,17 @@ export default function Inventory() {
 
   const isLowStock = (item) =>
     parseFloat(item.reorder_point) > 0 &&
-    parseInt(item.count_ending) <= parseFloat(item.reorder_point);
+    parseInt(item.count_ending) < parseFloat(item.reorder_point);
   const isNegative = (item) => parseInt(item.count_ending) < 0;
 
+  const calculateToPurchase = (item) => {
+    return isLowStock(item)
+      ? Math.max(
+          0,
+          parseFloat(item.reorder_point) - parseInt(item.count_ending),
+        )
+      : 0;
+  };
   return (
     <div className="p-4 sm:p-6 lg:p-8">
       <div className="flex items-start justify-between mb-6">
@@ -370,6 +378,7 @@ export default function Inventory() {
                 <th className="text-right">Ending</th>
                 <th className="text-right text-primary">Reorder Pt.</th>
                 <th>Status</th>
+                <th className="text-right text-error">To Purchase</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -448,18 +457,24 @@ export default function Inventory() {
                       </td>
                       <td>
                         {neg ? (
-                          <span className="badge badge-error badge-sm font-mono">
+                          <span className="badge badge-error badge-sm">
                             NEG
                           </span>
                         ) : low ? (
-                          <span className="badge badge-warning badge-sm font-mono">
+                          <span className="badge badge-warning badge-sm">
                             LOW
                           </span>
                         ) : (
-                          <span className="badge badge-success badge-sm font-mono">
+                          <span className="badge badge-success badge-sm">
                             OK
                           </span>
                         )}
+                      </td>
+                      <td
+                        className="text-right font-mono text-sm text-error"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {calculateToPurchase(item)}
                       </td>
                       <td onClick={(e) => e.stopPropagation()}>
                         <div className="flex gap-1">

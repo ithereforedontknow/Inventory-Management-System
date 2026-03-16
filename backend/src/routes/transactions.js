@@ -52,9 +52,18 @@ router.get("/", async (req, res) => {
 
     // Data query
     const dataSql = `
-      SELECT t.*, i.name AS inventory_name
+      SELECT
+        t.id,
+        t.date,
+        i.name AS item_name,
+        t.transaction_type,
+        t.quantity,
+        pd.supplier_name,
+        t.invoice_number,
+        t.notes
       FROM transactions t
       JOIN inventory_items i ON t.inventory_id = i.id
+      LEFT JOIN purchase_details pd ON t.id = pd.transaction_id
       ${whereClause}
       ORDER BY t.date DESC, t.id DESC
       LIMIT ? OFFSET ?
@@ -81,13 +90,25 @@ router.get("/", async (req, res) => {
 // GET /api/transactions/:id
 router.get("/:id", async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      `SELECT t.*, i.name AS inventory_name
-       FROM transactions t
-       JOIN inventory_items i ON t.inventory_id = i.id
-       WHERE t.id = ?`,
-      [req.params.id],
-    );
+    const transId = req.params.id;
+    const dataSql = `
+      SELECT
+        t.id,
+        t.date,
+        i.name AS item_name,
+        t.transaction_type,
+        t.quantity,
+        pd.supplier_name,
+        t.invoice_number,
+        t.notes
+      FROM transactions t
+      JOIN inventory_items i ON t.inventory_id = i.id
+      LEFT JOIN purchase_details pd ON t.id = pd.transaction_id
+      WHERE t.id = ?
+    `;
+
+    const [rows] = await pool.query(dataSql, [transId]);
+
     if (!rows[0])
       return res.status(404).json({ error: "Transaction not found" });
     res.json(rows[0]);
@@ -113,6 +134,7 @@ function validate(body) {
 
 // POST /api/transactions
 router.post("/", async (req, res) => {
+  const conn = await pool.getConnection(); // Need a single connection for the transaction
   try {
     const errors = validate(req.body);
     if (Object.keys(errors).length) return res.status(422).json({ errors });
@@ -122,51 +144,53 @@ router.post("/", async (req, res) => {
       transaction_type,
       date,
       quantity,
-      invoice_number = null,
-      notes = null,
+      invoice_number,
+      notes,
+      supplier_name,
     } = req.body;
 
-    // Check inventory item exists
-    const [[item]] = await pool.query(
-      "SELECT id FROM inventory_items WHERE id = ?",
-      [inventory_id],
-    );
-    if (!item)
-      return res.status(404).json({ error: "Inventory item not found" });
+    await conn.beginTransaction();
 
-    const [result] = await pool.query(
+    // Insert main transaction
+    const [tResult] = await conn.query(
       "INSERT INTO transactions (date, inventory_id, transaction_type, quantity, invoice_number, notes) VALUES (?, ?, ?, ?, ?, ?)",
       [
         date,
-        parseInt(inventory_id),
+        inventory_id,
         transaction_type,
-        parseInt(quantity),
+        quantity,
         invoice_number || null,
         notes || null,
       ],
     );
 
-    res
-      .status(201)
-      .json({ id: result.insertId, message: "Transaction created" });
+    const newId = tResult.insertId;
+
+    // Insert purchase details only if needed
+    if (transaction_type === "Purchased") {
+      await conn.query(
+        "INSERT INTO purchase_details (transaction_id, supplier_name) VALUES (?, ?)",
+        [newId, supplier_name],
+      );
+    }
+
+    await conn.commit();
+    res.status(201).json({ id: newId, message: "Transaction created" });
   } catch (err) {
+    await conn.rollback();
     console.error(err);
     res.status(500).json({ error: "Internal server error" });
+  } finally {
+    conn.release();
   }
 });
 
 // PUT /api/transactions/:id
 router.put("/:id", async (req, res) => {
+  const conn = await pool.getConnection();
   try {
     const errors = validate(req.body);
     if (Object.keys(errors).length) return res.status(422).json({ errors });
-
-    const [[existing]] = await pool.query(
-      "SELECT id FROM transactions WHERE id = ?",
-      [req.params.id],
-    );
-    if (!existing)
-      return res.status(404).json({ error: "Transaction not found" });
 
     const {
       inventory_id,
@@ -175,9 +199,22 @@ router.put("/:id", async (req, res) => {
       quantity,
       invoice_number = null,
       notes = null,
+      supplier_name = null,
     } = req.body;
+    const transId = req.params.id;
 
-    await pool.query(
+    // Check if record exists before starting transaction
+    const [[existing]] = await conn.query(
+      "SELECT id FROM transactions WHERE id = ?",
+      [transId],
+    );
+    if (!existing)
+      return res.status(404).json({ error: "Transaction not found" });
+
+    await conn.beginTransaction();
+
+    // 1. Update main table
+    await conn.query(
       "UPDATE transactions SET date=?, inventory_id=?, transaction_type=?, quantity=?, invoice_number=?, notes=? WHERE id=?",
       [
         date,
@@ -186,14 +223,33 @@ router.put("/:id", async (req, res) => {
         parseInt(quantity),
         invoice_number || null,
         notes || null,
-        req.params.id,
+        transId,
       ],
     );
 
+    // 2. Handle Purchase Subtype logic
+    if (transaction_type === "Purchased") {
+      // Use UPSERT (INSERT ... ON DUPLICATE KEY UPDATE) to handle adding or updating the supplier
+      await conn.query(
+        "INSERT INTO purchase_details (transaction_id, supplier_name) VALUES (?, ?) ON DUPLICATE KEY UPDATE supplier_name = ?",
+        [transId, supplier_name, supplier_name],
+      );
+    } else {
+      // If the type changed to 'Sold' or 'Adjustment', remove the now-irrelevant purchase info
+      await conn.query(
+        "DELETE FROM purchase_details WHERE transaction_id = ?",
+        [transId],
+      );
+    }
+
+    await conn.commit();
     res.json({ message: "Transaction updated" });
   } catch (err) {
+    await conn.rollback();
     console.error(err);
     res.status(500).json({ error: "Internal server error" });
+  } finally {
+    conn.release();
   }
 });
 

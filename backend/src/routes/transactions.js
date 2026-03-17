@@ -1,13 +1,15 @@
 const express = require("express");
 const pool = require("../db/pool");
 const { requireAuth } = require("../Middleware/auth");
+const { requireRole } = require("../Middleware/requireRole");
+const { auditLog } = require("../helpers/auditHelper");
 
 const router = express.Router();
 router.use(requireAuth);
 
 const VALID_TYPES = ["Purchased", "Sold", "Adjustment"];
 
-// GET /api/transactions
+// GET — all roles
 router.get("/", async (req, res) => {
   try {
     const page = Math.max(1, parseInt(req.query.page || "1"));
@@ -19,11 +21,10 @@ router.get("/", async (req, res) => {
       : null;
     const from = req.query.date_from || null;
     const to = req.query.date_to || null;
+    const itemSearch = req.query.item_search?.trim() || "";
 
-    // Build conditions and params
     const conditions = [];
     const params = [];
-
     if (type) {
       conditions.push("t.transaction_type = ?");
       params.push(type);
@@ -40,39 +41,32 @@ router.get("/", async (req, res) => {
       conditions.push("t.date <= ?");
       params.push(to);
     }
+    if (itemSearch) {
+      conditions.push("i.name LIKE ?");
+      params.push(`%${itemSearch}%`);
+    }
 
     const whereClause = conditions.length
       ? "WHERE " + conditions.join(" AND ")
       : "";
 
-    // Count query
-    const countSql = `SELECT COUNT(*) as total FROM transactions t ${whereClause}`;
-    const [countResult] = await pool.query(countSql, params);
+    const [countResult] = await pool.query(
+      `SELECT COUNT(*) as total FROM transactions t JOIN inventory_items i ON t.inventory_id = i.id ${whereClause}`,
+      params,
+    );
     const total = countResult[0].total;
 
-    // Data query
-    const dataSql = `
-      SELECT
-        t.id,
-        t.date,
-        i.name AS item_name,
-        t.transaction_type,
-        t.quantity,
-        pd.supplier_name,
-        t.invoice_number,
-        t.notes
-      FROM transactions t
-      JOIN inventory_items i ON t.inventory_id = i.id
-      LEFT JOIN purchase_details pd ON t.id = pd.transaction_id
-      ${whereClause}
-      ORDER BY t.date DESC, t.id DESC
-      LIMIT ? OFFSET ?
-    `;
-
-    // Create params array with filter params + pagination params
-    const dataParams = params.concat([parseInt(limit), parseInt(offset)]);
-
-    const [rows] = await pool.query(dataSql, dataParams);
+    const [rows] = await pool.query(
+      `SELECT t.id, t.date, i.name AS item_name, t.transaction_type, t.quantity,
+              pd.supplier_name, t.invoice_number, t.notes
+       FROM transactions t
+       JOIN inventory_items i ON t.inventory_id = i.id
+       LEFT JOIN purchase_details pd ON t.id = pd.transaction_id
+       ${whereClause}
+       ORDER BY t.date DESC, t.id DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset],
+    );
 
     res.json({
       data: rows,
@@ -87,28 +81,17 @@ router.get("/", async (req, res) => {
   }
 });
 
-// GET /api/transactions/:id
 router.get("/:id", async (req, res) => {
   try {
-    const transId = req.params.id;
-    const dataSql = `
-      SELECT
-        t.id,
-        t.date,
-        i.name AS item_name,
-        t.transaction_type,
-        t.quantity,
-        pd.supplier_name,
-        t.invoice_number,
-        t.notes
-      FROM transactions t
-      JOIN inventory_items i ON t.inventory_id = i.id
-      LEFT JOIN purchase_details pd ON t.id = pd.transaction_id
-      WHERE t.id = ?
-    `;
-
-    const [rows] = await pool.query(dataSql, [transId]);
-
+    const [rows] = await pool.query(
+      `SELECT t.id, t.date, i.name AS item_name, t.transaction_type, t.quantity,
+              pd.supplier_name, t.invoice_number, t.notes
+       FROM transactions t
+       JOIN inventory_items i ON t.inventory_id = i.id
+       LEFT JOIN purchase_details pd ON t.id = pd.transaction_id
+       WHERE t.id = ?`,
+      [req.params.id],
+    );
     if (!rows[0])
       return res.status(404).json({ error: "Transaction not found" });
     res.json(rows[0]);
@@ -121,20 +104,18 @@ router.get("/:id", async (req, res) => {
 function validate(body) {
   const errors = {};
   const { inventory_id, transaction_type, date, quantity } = body;
-
   if (!inventory_id) errors.inventory_id = ["Please select an inventory item"];
   if (!VALID_TYPES.includes(transaction_type))
     errors.transaction_type = ["Invalid transaction type"];
   if (!date) errors.date = ["Date is required"];
   if (!quantity || isNaN(quantity) || parseInt(quantity) < 1)
     errors.quantity = ["Quantity must be at least 1"];
-
   return errors;
 }
 
-// POST /api/transactions
-router.post("/", async (req, res) => {
-  const conn = await pool.getConnection(); // Need a single connection for the transaction
+// POST/PUT/DELETE — manager and above
+router.post("/", requireRole("manager"), async (req, res) => {
+  const conn = await pool.getConnection();
   try {
     const errors = validate(req.body);
     if (Object.keys(errors).length) return res.status(422).json({ errors });
@@ -150,8 +131,6 @@ router.post("/", async (req, res) => {
     } = req.body;
 
     await conn.beginTransaction();
-
-    // Insert main transaction
     const [tResult] = await conn.query(
       "INSERT INTO transactions (date, inventory_id, transaction_type, quantity, invoice_number, notes) VALUES (?, ?, ?, ?, ?, ?)",
       [
@@ -163,19 +142,29 @@ router.post("/", async (req, res) => {
         notes || null,
       ],
     );
-
-    const newId = tResult.insertId;
-
-    // Insert purchase details only if needed
     if (transaction_type === "Purchased") {
       await conn.query(
         "INSERT INTO purchase_details (transaction_id, supplier_name) VALUES (?, ?)",
-        [newId, supplier_name],
+        [tResult.insertId, supplier_name],
       );
     }
-
     await conn.commit();
-    res.status(201).json({ id: newId, message: "Transaction created" });
+
+    const [[item]] = await pool.query(
+      "SELECT name FROM inventory_items WHERE id = ?",
+      [inventory_id],
+    );
+    await auditLog(
+      req.user,
+      "CREATE",
+      "transaction",
+      tResult.insertId,
+      `${transaction_type} ${quantity} × ${item?.name || "unknown"}`,
+    );
+
+    res
+      .status(201)
+      .json({ id: tResult.insertId, message: "Transaction created" });
   } catch (err) {
     await conn.rollback();
     console.error(err);
@@ -185,8 +174,7 @@ router.post("/", async (req, res) => {
   }
 });
 
-// PUT /api/transactions/:id
-router.put("/:id", async (req, res) => {
+router.put("/:id", requireRole("manager"), async (req, res) => {
   const conn = await pool.getConnection();
   try {
     const errors = validate(req.body);
@@ -203,17 +191,15 @@ router.put("/:id", async (req, res) => {
     } = req.body;
     const transId = req.params.id;
 
-    // Check if record exists before starting transaction
     const [[existing]] = await conn.query(
-      "SELECT id FROM transactions WHERE id = ?",
+      `SELECT t.*, i.name AS item_name FROM transactions t
+       JOIN inventory_items i ON t.inventory_id = i.id WHERE t.id = ?`,
       [transId],
     );
     if (!existing)
       return res.status(404).json({ error: "Transaction not found" });
 
     await conn.beginTransaction();
-
-    // 1. Update main table
     await conn.query(
       "UPDATE transactions SET date=?, inventory_id=?, transaction_type=?, quantity=?, invoice_number=?, notes=? WHERE id=?",
       [
@@ -226,23 +212,40 @@ router.put("/:id", async (req, res) => {
         transId,
       ],
     );
-
-    // 2. Handle Purchase Subtype logic
     if (transaction_type === "Purchased") {
-      // Use UPSERT (INSERT ... ON DUPLICATE KEY UPDATE) to handle adding or updating the supplier
       await conn.query(
         "INSERT INTO purchase_details (transaction_id, supplier_name) VALUES (?, ?) ON DUPLICATE KEY UPDATE supplier_name = ?",
         [transId, supplier_name, supplier_name],
       );
     } else {
-      // If the type changed to 'Sold' or 'Adjustment', remove the now-irrelevant purchase info
       await conn.query(
         "DELETE FROM purchase_details WHERE transaction_id = ?",
         [transId],
       );
     }
-
     await conn.commit();
+
+    const changes = {};
+    if (existing.transaction_type !== transaction_type)
+      changes.type = [existing.transaction_type, transaction_type];
+    if (parseInt(existing.quantity) !== parseInt(quantity))
+      changes.quantity = [existing.quantity, parseInt(quantity)];
+    if (existing.date?.substring(0, 10) !== date)
+      changes.date = [existing.date?.substring(0, 10), date];
+
+    const [[newItem]] = await pool.query(
+      "SELECT name FROM inventory_items WHERE id = ?",
+      [inventory_id],
+    );
+    await auditLog(
+      req.user,
+      "UPDATE",
+      "transaction",
+      parseInt(transId),
+      `${transaction_type} ${quantity} × ${newItem?.name || "unknown"}`,
+      Object.keys(changes).length ? changes : null,
+    );
+
     res.json({ message: "Transaction updated" });
   } catch (err) {
     await conn.rollback();
@@ -253,17 +256,23 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-// DELETE /api/transactions/:id
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", requireRole("manager"), async (req, res) => {
   try {
     const [[existing]] = await pool.query(
-      "SELECT id FROM transactions WHERE id = ?",
+      `SELECT t.*, i.name AS item_name FROM transactions t
+       JOIN inventory_items i ON t.inventory_id = i.id WHERE t.id = ?`,
       [req.params.id],
     );
     if (!existing)
       return res.status(404).json({ error: "Transaction not found" });
-
     await pool.query("DELETE FROM transactions WHERE id = ?", [req.params.id]);
+    await auditLog(
+      req.user,
+      "DELETE",
+      "transaction",
+      existing.id,
+      `${existing.transaction_type} ${existing.quantity} × ${existing.item_name}`,
+    );
     res.json({ message: "Transaction deleted" });
   } catch (err) {
     console.error(err);

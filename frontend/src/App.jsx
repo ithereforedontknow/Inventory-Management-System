@@ -6,6 +6,9 @@ import Dashboard from "./pages/Dashboard";
 import Inventory from "./pages/Inventory";
 import Transactions from "./pages/Transactions";
 import Reports from "./pages/Reports";
+import AuditLog from "./pages/AuditLog";
+import Backups from "./pages/Backups";
+
 import Login from "./pages/Login";
 import Settings from "./pages/Settings";
 
@@ -32,7 +35,7 @@ function AppLayout() {
 
   // Logged in
   return (
-    <div className="flex min-h-screen bg-base-100">
+    <div className="flex h-screen overflow-hidden bg-base-100">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       {sidebarOpen && (
@@ -72,6 +75,8 @@ function AppLayout() {
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/transactions" element={<Transactions />} />
             <Route path="/reports" element={<Reports />} />
+            <Route path="/audit-log" element={<AuditLog />} />
+            <Route path="/backups" element={<Backups />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/login" element={<Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />

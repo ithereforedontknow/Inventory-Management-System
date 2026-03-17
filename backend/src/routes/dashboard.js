@@ -22,7 +22,7 @@ router.get("/", async (req, res) => {
         i.count_beginning
         + COALESCE((SELECT SUM(t.quantity) FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Purchased'), 0)
         - COALESCE((SELECT SUM(t.quantity) FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Sold'), 0)
-      ) <= (
+      ) < (
         i.lead_time * (
           SELECT COALESCE(MAX(t.quantity), 0) FROM transactions t
           WHERE t.inventory_id = i.id AND t.transaction_type = 'Sold'

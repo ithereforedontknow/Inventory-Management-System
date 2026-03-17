@@ -61,18 +61,20 @@ services:
             - node_modules/
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
     container_name: inventory_frontend
     restart: unless-stopped
     ports:
-      - "3000:80"
+      - "3000:3000"
     depends_on:
       - backend
     develop:
       watch:
         - action: sync
-          path: ./frontend/src
-          target: /app/src # Adjust based on where your source code lives in the container
+          path: ./frontend
+          target: /app # Adjust based on where your source code lives in the container
           ignore:
             - node_modules/
         - action: rebuild

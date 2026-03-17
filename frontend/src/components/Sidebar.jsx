@@ -8,6 +8,8 @@ import {
   Settings,
   X,
   LogOut,
+  DatabaseBackup,
+  FileClock,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
@@ -16,6 +18,8 @@ const links = [
   { to: "/inventory", icon: Package, label: "Inventory" },
   { to: "/transactions", icon: ArrowLeftRight, label: "Transactions" },
   { to: "/reports", icon: TrendingUp, label: "Reports" },
+  { to: "/audit-log", icon: FileClock, label: "Audit Log" },
+  { to: "/backups", icon: DatabaseBackup, label: "Backups" },
 ];
 
 export default function Sidebar({ open, onClose }) {

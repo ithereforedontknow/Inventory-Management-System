@@ -1,19 +1,14 @@
 const express = require("express");
 const pool = require("../db/pool");
 const { requireAuth } = require("../Middleware/auth");
+const { requireRole } = require("../Middleware/requireRole");
+const { auditLog } = require("../helpers/auditHelper");
 const router = express.Router();
 router.use(requireAuth);
 
-// Computed columns SQL — all stats derived live from transactions
 const WITH_STATS = `
   SELECT
-    i.id,
-    i.name,
-    i.price,
-    i.count_beginning,
-    i.lead_time,
-    i.created_at,
-    i.updated_at,
+    i.id, i.name, i.price, i.count_beginning, i.lead_time, i.created_at, i.updated_at,
     COALESCE((SELECT SUM(t.quantity) FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Purchased'), 0) AS total_purchased,
     COALESCE((SELECT SUM(t.quantity) FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Sold'), 0) AS total_sold,
     (
@@ -22,33 +17,22 @@ const WITH_STATS = `
       - COALESCE((SELECT SUM(t.quantity) FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Sold'), 0)
     ) AS count_ending,
     COALESCE((SELECT MAX(t.quantity) FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Sold'), 0) AS max_sales,
-    COALESCE((
-      SELECT SUM(t.quantity) / NULLIF(COUNT(DISTINCT t.date), 0)
-      FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Sold'
-    ), 0) AS avg_daily_usage,
-    COALESCE((
-      SELECT i.lead_time * (MAX(t.quantity) - SUM(t.quantity) / NULLIF(COUNT(DISTINCT t.date), 0))
-      FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Sold'
-    ), 0) AS safety_stock,
-    COALESCE((
-      SELECT
-        (SUM(t.quantity) / NULLIF(COUNT(DISTINCT t.date), 0)) * i.lead_time
-        + i.lead_time * (MAX(t.quantity) - SUM(t.quantity) / NULLIF(COUNT(DISTINCT t.date), 0))
-      FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Sold'
-    ), 0) AS reorder_point
+    COALESCE((SELECT SUM(t.quantity) / NULLIF(COUNT(DISTINCT t.date), 0) FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Sold'), 0) AS avg_daily_usage,
+    COALESCE((SELECT i.lead_time * (MAX(t.quantity) - SUM(t.quantity) / NULLIF(COUNT(DISTINCT t.date), 0)) FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Sold'), 0) AS safety_stock,
+    COALESCE((SELECT (SUM(t.quantity) / NULLIF(COUNT(DISTINCT t.date), 0)) * i.lead_time + i.lead_time * (MAX(t.quantity) - SUM(t.quantity) / NULLIF(COUNT(DISTINCT t.date), 0)) FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Sold'), 0) AS reorder_point
   FROM inventory_items i
 `;
 
-// GET /api/inventory
+// GET — all roles
 router.get("/", async (req, res) => {
   try {
     const search = req.query.search?.trim() || "";
     const page = Math.max(1, parseInt(req.query.page || "1"));
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || "20")));
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || "15")));
     const offset = (page - 1) * limit;
 
-    let countSql = "SELECT COUNT(*) as total FROM inventory_items i";
     const countParams = [];
+    let countSql = "SELECT COUNT(*) as total FROM inventory_items i";
     if (search) {
       countSql += " WHERE i.name LIKE ?";
       countParams.push(`%${search}%`);
@@ -56,14 +40,14 @@ router.get("/", async (req, res) => {
     const [countResult] = await pool.query(countSql, countParams);
     const total = countResult[0].total;
 
-    let dataSql = WITH_STATS;
     const dataParams = [];
+    let dataSql = WITH_STATS;
     if (search) {
       dataSql += " WHERE i.name LIKE ?";
       dataParams.push(`%${search}%`);
     }
-    dataSql += " ORDER BY i.name LIMIT ? OFFSET ?";
-    dataParams.push(parseInt(limit), parseInt(offset));
+    dataSql += " ORDER BY i.name ASC LIMIT ? OFFSET ?";
+    dataParams.push(limit, offset);
 
     const [rows] = await pool.query(dataSql, dataParams);
     res.json({
@@ -79,7 +63,6 @@ router.get("/", async (req, res) => {
   }
 });
 
-// GET /api/inventory/:id
 router.get("/:id", async (req, res) => {
   try {
     const [rows] = await pool.query(`${WITH_STATS} WHERE i.id = ?`, [
@@ -93,22 +76,18 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// POST /api/inventory
-router.post("/", async (req, res) => {
+// POST/PUT/DELETE — manager and above
+router.post("/", requireRole("manager"), async (req, res) => {
   try {
     const { name, price = 0, count_beginning = 0, lead_time = 3 } = req.body;
     const errors = {};
-
     if (!name?.trim()) errors.name = ["Name is required"];
     else if (name.trim().length > 255)
       errors.name = ["Name must be 255 characters or less"];
-
     if (isNaN(price) || parseFloat(price) < 0)
       errors.price = ["Price must be 0 or more"];
-
     if (isNaN(count_beginning) || parseInt(count_beginning) < 0)
       errors.count_beginning = ["Beginning count must be 0 or more"];
-
     if (
       !lead_time ||
       isNaN(lead_time) ||
@@ -116,10 +95,8 @@ router.post("/", async (req, res) => {
       parseInt(lead_time) > 365
     )
       errors.lead_time = ["Lead time must be between 1 and 365 days"];
-
     if (Object.keys(errors).length) return res.status(422).json({ errors });
 
-    // Check duplicate name
     const [[{ count }]] = await pool.query(
       "SELECT COUNT(*) as count FROM inventory_items WHERE name = ?",
       [name.trim()],
@@ -138,7 +115,13 @@ router.post("/", async (req, res) => {
         parseInt(lead_time),
       ],
     );
-
+    await auditLog(
+      req.user,
+      "CREATE",
+      "inventory",
+      result.insertId,
+      name.trim(),
+    );
     res.status(201).json({ id: result.insertId, message: "Item created" });
   } catch (err) {
     console.error(err);
@@ -146,23 +129,18 @@ router.post("/", async (req, res) => {
   }
 });
 
-// PUT /api/inventory/:id
-router.put("/:id", async (req, res) => {
+router.put("/:id", requireRole("manager"), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { name, price = 0, count_beginning = 0, lead_time = 3 } = req.body;
     const errors = {};
-
     if (!name?.trim()) errors.name = ["Name is required"];
     else if (name.trim().length > 255)
       errors.name = ["Name must be 255 characters or less"];
-
     if (isNaN(price) || parseFloat(price) < 0)
       errors.price = ["Price must be 0 or more"];
-
     if (isNaN(count_beginning) || parseInt(count_beginning) < 0)
       errors.count_beginning = ["Beginning count must be 0 or more"];
-
     if (
       !lead_time ||
       isNaN(lead_time) ||
@@ -170,11 +148,10 @@ router.put("/:id", async (req, res) => {
       parseInt(lead_time) > 365
     )
       errors.lead_time = ["Lead time must be between 1 and 365 days"];
-
     if (Object.keys(errors).length) return res.status(422).json({ errors });
 
     const [[existing]] = await pool.query(
-      "SELECT id FROM inventory_items WHERE id = ?",
+      "SELECT * FROM inventory_items WHERE id = ?",
       [id],
     );
     if (!existing) return res.status(404).json({ error: "Item not found" });
@@ -188,6 +165,19 @@ router.put("/:id", async (req, res) => {
         .status(409)
         .json({ errors: { name: ["An item with this name already exists"] } });
 
+    const changes = {};
+    if (existing.name !== name.trim())
+      changes.name = [existing.name, name.trim()];
+    if (parseFloat(existing.price) !== parseFloat(price))
+      changes.price = [existing.price, parseFloat(price)];
+    if (parseInt(existing.count_beginning) !== parseInt(count_beginning))
+      changes.count_beginning = [
+        existing.count_beginning,
+        parseInt(count_beginning),
+      ];
+    if (parseInt(existing.lead_time) !== parseInt(lead_time))
+      changes.lead_time = [existing.lead_time, parseInt(lead_time)];
+
     await pool.query(
       "UPDATE inventory_items SET name = ?, price = ?, count_beginning = ?, lead_time = ? WHERE id = ?",
       [
@@ -198,7 +188,14 @@ router.put("/:id", async (req, res) => {
         id,
       ],
     );
-
+    await auditLog(
+      req.user,
+      "UPDATE",
+      "inventory",
+      id,
+      name.trim(),
+      Object.keys(changes).length ? changes : null,
+    );
     res.json({ message: "Item updated" });
   } catch (err) {
     console.error(err);
@@ -206,18 +203,17 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-// DELETE /api/inventory/:id
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", requireRole("manager"), async (req, res) => {
   try {
     const [[existing]] = await pool.query(
-      "SELECT id FROM inventory_items WHERE id = ?",
+      "SELECT * FROM inventory_items WHERE id = ?",
       [req.params.id],
     );
     if (!existing) return res.status(404).json({ error: "Item not found" });
-
     await pool.query("DELETE FROM inventory_items WHERE id = ?", [
       req.params.id,
     ]);
+    await auditLog(req.user, "DELETE", "inventory", existing.id, existing.name);
     res.json({ message: "Item deleted" });
   } catch (err) {
     console.error(err);

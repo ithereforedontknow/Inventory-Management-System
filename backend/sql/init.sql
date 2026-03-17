@@ -34,6 +34,11 @@ CREATE TABLE IF NOT EXISTS transactions (
     FOREIGN KEY (inventory_id) REFERENCES inventory_items(id) ON DELETE CASCADE
 );
 
+-- Normalized Subtype Table for Purchases
+CREATE TABLE IF NOT EXISTS purchase_details (
+    transaction_id INT PRIMARY KEY,
+    supplier_name  VARCHAR(255) NOT NULL,
+    FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE
+);
 
 -- NOTE: Admin user is seeded by seed.php at container startup, not here.
--- This avoids hardcoded bcrypt hash mismatches across PHP versions.

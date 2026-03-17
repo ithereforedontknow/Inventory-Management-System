@@ -10,13 +10,14 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  Filter,
+  Search,
   RefreshCw,
   Download,
 } from "lucide-react";
 import { format } from "date-fns";
 import { useValidation, rules } from "../hooks/useValidation";
 import { FieldError, ConfirmModal } from "../components/FormComponents";
+import { useDebounce } from "../hooks/useDebounce";
 
 const EMPTY_FORM = {
   inventory_id: "",
@@ -26,6 +27,8 @@ const EMPTY_FORM = {
   invoice_number: "",
   notes: "",
 };
+
+const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
 const txRules = {
   inventory_id: (v) => (!v ? "Please select an inventory item" : null),
@@ -58,6 +61,13 @@ const TYPE_STYLE = {
   },
 };
 
+const TYPE_FILTERS = [
+  { key: "", label: "All" },
+  { key: "Purchased", label: "Purchased" },
+  { key: "Sold", label: "Sold" },
+  { key: "Adjustment", label: "Adjustment" },
+];
+
 function TypeBadge({ type, size = 10 }) {
   const s = TYPE_STYLE[type] || TYPE_STYLE.Purchased;
   const Icon = s.icon;
@@ -70,6 +80,7 @@ function TypeBadge({ type, size = 10 }) {
     </span>
   );
 }
+
 function TransactionModal({ tx, onClose, onSaved }) {
   const [form, setForm] = useState(
     tx ? { ...tx, date: tx.date?.substring(0, 10) } : { ...EMPTY_FORM },
@@ -304,17 +315,22 @@ export default function Transactions() {
   const [typeFilter, setTypeFilter] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [itemSearch, setItemSearch] = useState("");
+  const [limit, setLimit] = useState(10);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
 
+  const debouncedSearch = useDebounce(itemSearch, 300);
+
   const fetchTxs = useCallback(async () => {
     setLoading(true);
     try {
-      const params = { page, limit: 20 };
+      const params = { page, limit };
       if (typeFilter) params.type = typeFilter;
       if (dateFrom) params.date_from = dateFrom;
       if (dateTo) params.date_to = dateTo;
+      if (debouncedSearch) params.item_search = debouncedSearch;
       const res = await api.getTransactions(params);
       setTxs(res.data);
       setTotal(res.total);
@@ -324,14 +340,15 @@ export default function Transactions() {
     } finally {
       setLoading(false);
     }
-  }, [page, typeFilter, dateFrom, dateTo]);
+  }, [page, limit, typeFilter, dateFrom, dateTo, debouncedSearch]);
 
   useEffect(() => {
     fetchTxs();
   }, [fetchTxs]);
+
   useEffect(() => {
     setPage(1);
-  }, [typeFilter, dateFrom, dateTo]);
+  }, [typeFilter, dateFrom, dateTo, debouncedSearch, limit]);
 
   async function confirmDelete() {
     try {
@@ -355,10 +372,18 @@ export default function Transactions() {
     );
   }
 
-  const hasFilters = typeFilter || dateFrom || dateTo;
+  const hasFilters = typeFilter || dateFrom || dateTo || itemSearch;
+
+  function clearFilters() {
+    setTypeFilter("");
+    setDateFrom("");
+    setDateTo("");
+    setItemSearch("");
+  }
 
   return (
     <div className="p-4 sm:p-6 lg:p-8">
+      {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
@@ -370,7 +395,7 @@ export default function Transactions() {
         </div>
         <div className="flex gap-2">
           <button
-            className="btn btn-ghost btn-sm gap-1.5"
+            className="btn btn-ghost sm:btn-md btn-sm gap-1.5"
             onClick={exportCSV}
             title="Export to CSV"
           >
@@ -388,53 +413,68 @@ export default function Transactions() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="glass-card p-3 sm:p-4 mb-4 space-y-3">
-        {/* Type pills */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <Filter size={13} className="text-base-content/40 flex-shrink-0" />
-          {["", "Purchased", "Sold", "Adjustment"].map((f) => (
+      {/* Search + type filter — same layout as Inventory */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <div className="relative flex-1">
+          {/* <Search
+            size={15}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40 pointer-events-none"
+          />*/}
+          <input
+            type="text"
+            placeholder="Search by item name..."
+            value={itemSearch}
+            className="input input-bordered input-sm sm:input-md bg-base-200 w-full pl-9 focus:border-primary"
+            onChange={(e) => setItemSearch(e.target.value)}
+          />
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {TYPE_FILTERS.map(({ key, label }) => (
             <button
-              key={f}
-              className={`btn btn-xs sm:btn-sm ${typeFilter === f ? "btn-primary" : "btn-ghost"}`}
-              onClick={() => setTypeFilter(f)}
+              key={key}
+              className={`btn btn-xs sm:btn-sm ${
+                typeFilter === key
+                  ? key === "Sold"
+                    ? "btn-secondary"
+                    : key === "Adjustment"
+                      ? "btn-info"
+                      : "btn-primary"
+                  : "btn-ghost"
+              }`}
+              onClick={() => setTypeFilter(key)}
             >
-              {f || "All"}
+              {label}
             </button>
           ))}
-        </div>
-
-        {/* Date range */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-base-content/40 font-mono">
-            Date range:
-          </span>
-          <input
-            type="date"
-            className="input input-bordered input-xs sm:input-sm bg-base-300 focus:border-primary"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-          />
-          <span className="text-base-content/40 text-xs">to</span>
-          <input
-            type="date"
-            className="input input-bordered input-xs sm:input-sm bg-base-300 focus:border-primary"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-          />
           {hasFilters && (
             <button
               className="btn btn-ghost btn-xs text-base-content/40"
-              onClick={() => {
-                setTypeFilter("");
-                setDateFrom("");
-                setDateTo("");
-              }}
+              onClick={clearFilters}
             >
               <X size={12} /> Clear
             </button>
           )}
         </div>
+      </div>
+
+      {/* Date range */}
+      <div className="flex items-center gap-2 flex-wrap mb-4">
+        <span className="text-xs text-base-content/40 font-mono">
+          Date range:
+        </span>
+        <input
+          type="date"
+          className="input input-bordered input-xs sm:input-sm bg-base-200 focus:border-primary"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+        />
+        <span className="text-base-content/40 text-xs">to</span>
+        <input
+          type="date"
+          className="input input-bordered input-xs sm:input-sm bg-base-200 focus:border-primary"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+        />
       </div>
 
       {/* Desktop table */}
@@ -548,7 +588,7 @@ export default function Transactions() {
             <div key={tx.id} className="glass-card p-4">
               <div className="flex items-start justify-between mb-2">
                 <div>
-                  <div className="font-bold text-sm">{tx.inventory_name}</div>
+                  <div className="font-bold text-sm">{tx.item_name}</div>
                   <div className="font-mono text-xs text-base-content/50 mt-0.5">
                     {tx.date?.substring(0, 10)}
                   </div>
@@ -571,7 +611,7 @@ export default function Transactions() {
               </div>
               <div className="flex items-center justify-between">
                 <div
-                  className={`text-xl font-black num ${
+                  className={`text-xl font-black ${
                     tx.transaction_type === "Purchased"
                       ? "text-primary"
                       : tx.transaction_type === "Sold"
@@ -592,8 +632,13 @@ export default function Transactions() {
                   </div>
                 )}
               </div>
+              {tx.supplier_name && (
+                <div className="text-xs text-base-content/50 mt-1">
+                  {tx.supplier_name}
+                </div>
+              )}
               {tx.notes && (
-                <div className="text-xs text-base-content/50 mt-2 truncate">
+                <div className="text-xs text-base-content/40 mt-1 truncate">
                   {tx.notes}
                 </div>
               )}
@@ -602,11 +647,33 @@ export default function Transactions() {
         )}
       </div>
 
-      {pages > 1 && (
-        <div className="flex items-center justify-between mt-4">
+      {/* Pagination */}
+      <div className="flex items-center justify-between mt-4 flex-wrap gap-2">
+        <div className="flex items-center gap-3">
           <span className="text-xs text-base-content/50 font-mono">
             Page {page} of {pages}
           </span>
+
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-base-content/40 font-mono hidden sm:inline">
+              Show:
+            </span>
+
+            {PAGE_SIZE_OPTIONS.map((n) => (
+              <button
+                key={n}
+                className={`btn btn-xs font-mono ${
+                  limit === n ? "btn-primary" : "btn-ghost"
+                }`}
+                onClick={() => setLimit(n)}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {pages > 1 && (
           <div className="join">
             <button
               className="join-item btn btn-sm"
@@ -615,6 +682,7 @@ export default function Transactions() {
             >
               <ChevronLeft size={14} />
             </button>
+
             <button
               className="join-item btn btn-sm"
               disabled={page >= pages}
@@ -623,8 +691,8 @@ export default function Transactions() {
               <ChevronRight size={14} />
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {modal && (
         <TransactionModal

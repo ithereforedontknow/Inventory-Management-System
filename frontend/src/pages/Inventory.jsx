@@ -16,8 +16,16 @@ import {
 } from "lucide-react";
 import { useValidation, rules } from "../hooks/useValidation";
 import { FieldError, ConfirmModal } from "../components/FormComponents";
+import { useDebounce } from "../hooks/useDebounce";
 
 const EMPTY_FORM = { name: "", price: 0, count_beginning: 0, lead_time: 3 };
+const PAGE_SIZE_OPTIONS = [15, 25, 50];
+const STATUS_FILTERS = [
+  { key: "", label: "All" },
+  { key: "low", label: "Low Stock" },
+  { key: "negative", label: "Negative" },
+  { key: "ok", label: "OK" },
+];
 
 const inventoryRules = {
   name: (v) => rules.required("Name")(v) || rules.maxLength(255, "Name")(v),
@@ -31,7 +39,6 @@ const inventoryRules = {
   },
 };
 
-// Read-only calculated metric tile
 function CalcField({ label, value, formula, color = "text-base-content" }) {
   const [tip, setTip] = useState(false);
   return (
@@ -114,7 +121,6 @@ function InventoryModal({ item, onClose, onSaved }) {
         </div>
 
         <form onSubmit={handleSubmit} noValidate className="space-y-4">
-          {/* Name */}
           <div className="form-control">
             <label className="label pb-1">
               <span className="label-text text-base-content/70 text-sm">
@@ -131,7 +137,6 @@ function InventoryModal({ item, onClose, onSaved }) {
             <FieldError error={errors.name} />
           </div>
 
-          {/* Price + Beginning Count + Lead Time side by side */}
           <div className="grid grid-cols-3 gap-3">
             <div className="form-control">
               <label className="label pb-1">
@@ -181,7 +186,6 @@ function InventoryModal({ item, onClose, onSaved }) {
             </div>
           </div>
 
-          {/* Calculated fields notice */}
           <div className="bg-base-300/40 border border-base-content/10 rounded-xl p-3 text-xs text-base-content/50 flex gap-2">
             <Info size={13} className="flex-shrink-0 mt-0.5 text-primary/60" />
             <span>
@@ -221,9 +225,8 @@ function InventoryModal({ item, onClose, onSaved }) {
   );
 }
 
-// Expanded detail row shown on click (desktop)
 function DetailRow({ item }) {
-  const isNegative = parseInt(item.count_ending) < 0;
+  const isNeg = parseInt(item.count_ending) < 0;
   return (
     <tr className="bg-base-300/20">
       <td colSpan={9} className="px-4 pb-4 pt-2">
@@ -253,12 +256,12 @@ function DetailRow({ item }) {
             color="text-primary"
           />
         </div>
-        {isNegative && (
+        {isNeg && (
           <div className="mt-2 flex items-center gap-2 text-xs text-error bg-error/10 border border-error/20 rounded-lg px-3 py-2">
             <TrendingDown size={13} />
             <span>
-              ⚠️ Ending stock is negative — more units have been sold than are
-              available. Check your transaction records.
+              Ending stock is negative — more units sold than available. Check
+              your transaction records.
             </span>
           </div>
         )}
@@ -273,15 +276,23 @@ export default function Inventory() {
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [limit, setLimit] = useState(10);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [expanded, setExpanded] = useState(null);
 
+  const debouncedSearch = useDebounce(search, 300);
+
   const fetchItems = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.getInventory({ page, limit: 15, search });
+      const res = await api.getInventory({
+        page,
+        limit,
+        search: debouncedSearch,
+      });
       setItems(res.data);
       setTotal(res.total);
       setPages(res.pages);
@@ -290,14 +301,15 @@ export default function Inventory() {
     } finally {
       setLoading(false);
     }
-  }, [page, search]);
+  }, [page, limit, debouncedSearch]);
 
   useEffect(() => {
     fetchItems();
   }, [fetchItems]);
+
   useEffect(() => {
     setPage(1);
-  }, [search]);
+  }, [debouncedSearch, statusFilter, limit]);
 
   async function confirmDelete() {
     try {
@@ -315,16 +327,31 @@ export default function Inventory() {
     parseInt(item.count_ending) < parseFloat(item.reorder_point);
   const isNegative = (item) => parseInt(item.count_ending) < 0;
 
-  const calculateToPurchase = (item) => {
-    return isLowStock(item)
+  const calculateToPurchase = (item) =>
+    isLowStock(item)
       ? Math.max(
           0,
           parseFloat(item.reorder_point) - parseInt(item.count_ending),
         )
       : 0;
-  };
+
+  // Status filter is client-side — no extra API param needed
+  const visibleItems = statusFilter
+    ? items.filter((item) => {
+        if (statusFilter === "negative") return isNegative(item);
+        if (statusFilter === "low")
+          return !isNegative(item) && isLowStock(item);
+        if (statusFilter === "ok")
+          return !isNegative(item) && !isLowStock(item);
+        return true;
+      })
+    : items;
+
+  const hasFilters = search || statusFilter;
+
   return (
     <div className="p-4 sm:p-6 lg:p-8">
+      {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
@@ -344,23 +371,57 @@ export default function Inventory() {
         </button>
       </div>
 
-      <div className="relative mb-4">
-        {/* <Search
-          size={15}
-          className="absolute left-4 top-1/2 -translate-y-1/2 text-base-content/40"
-        />*/}
-        <input
-          type="text"
-          placeholder="Search inventory..."
-          value={search}
-          className="input input-bordered input-sm sm:input-md bg-base-200 w-full pl-10 focus:border-primary"
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      {/* Search + Status filter */}
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <div className="relative flex-1">
+          {/* <Search
+            size={15}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40 pointer-events-none"
+          />*/}
+          <input
+            type="text"
+            placeholder="Search inventory..."
+            value={search}
+            className="input input-bordered input-sm sm:input-md bg-base-200 w-full pl-9 focus:border-primary"
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {STATUS_FILTERS.map(({ key, label }) => (
+            <button
+              key={key}
+              className={`btn btn-xs sm:btn-sm ${
+                statusFilter === key
+                  ? key === "negative"
+                    ? "btn-error"
+                    : key === "low"
+                      ? "btn-warning"
+                      : key === "ok"
+                        ? "btn-success"
+                        : "btn-primary"
+                  : "btn-ghost"
+              }`}
+              onClick={() => setStatusFilter(key)}
+            >
+              {label}
+            </button>
+          ))}
+          {hasFilters && (
+            <button
+              className="btn btn-ghost btn-xs text-base-content/40"
+              onClick={() => {
+                setSearch("");
+                setStatusFilter("");
+              }}
+            >
+              <X size={12} /> Clear
+            </button>
+          )}
+        </div>
       </div>
 
       <p className="text-xs text-base-content/40 mb-4 font-mono">
-        Click any row to see calculated metrics (Avg Daily Usage, Max Sales,
-        Safety Stock, Reorder Point)
+        Click any row to see calculated metrics
       </p>
 
       {/* ── Desktop Table ── */}
@@ -385,14 +446,14 @@ export default function Inventory() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="text-center py-12">
+                  <td colSpan={11} className="text-center py-12">
                     <span className="loading loading-spinner loading-md text-primary" />
                   </td>
                 </tr>
-              ) : items.length === 0 ? (
+              ) : visibleItems.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={11}
                     className="text-center py-12 text-base-content/30"
                   >
                     <Package size={36} className="mx-auto mb-3 opacity-30" />
@@ -400,7 +461,7 @@ export default function Inventory() {
                   </td>
                 </tr>
               ) : (
-                items.map((item) => {
+                visibleItems.map((item) => {
                   const low = isLowStock(item);
                   const neg = isNegative(item);
                   const open = expanded === item.id;
@@ -508,13 +569,13 @@ export default function Inventory() {
           <div className="text-center py-12">
             <span className="loading loading-spinner loading-md text-primary" />
           </div>
-        ) : items.length === 0 ? (
+        ) : visibleItems.length === 0 ? (
           <div className="text-center py-12 text-base-content/30">
             <Package size={36} className="mx-auto mb-3 opacity-30" />
             <p>No items found</p>
           </div>
         ) : (
-          items.map((item) => {
+          visibleItems.map((item) => {
             const low = isLowStock(item);
             const neg = isNegative(item);
             const open = expanded === item.id;
@@ -573,7 +634,6 @@ export default function Inventory() {
                   </div>
                 </div>
 
-                {/* Stock numbers */}
                 <div className="grid grid-cols-3 gap-2 mb-3">
                   {[
                     {
@@ -625,7 +685,6 @@ export default function Inventory() {
                   ))}
                 </div>
 
-                {/* Calculated metrics toggle */}
                 <button
                   className="w-full text-xs text-base-content/40 hover:text-base-content/60 flex items-center justify-center gap-1 py-1"
                   onClick={() => setExpanded(open ? null : item.id)}
@@ -675,11 +734,33 @@ export default function Inventory() {
         )}
       </div>
 
-      {pages > 1 && (
-        <div className="flex items-center justify-between mt-4">
+      {/* ── Pagination ── */}
+      <div className="flex items-center justify-between mt-4 flex-wrap gap-2">
+        <div className="flex items-center gap-3">
           <span className="text-xs text-base-content/50 font-mono">
             Page {page} of {pages}
           </span>
+
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-base-content/40 font-mono hidden sm:inline">
+              Show:
+            </span>
+
+            {PAGE_SIZE_OPTIONS.map((n) => (
+              <button
+                key={n}
+                className={`btn btn-xs font-mono ${
+                  limit === n ? "btn-primary" : "btn-ghost"
+                }`}
+                onClick={() => setLimit(n)}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {pages > 1 && (
           <div className="join">
             <button
               className="join-item btn btn-sm"
@@ -688,6 +769,7 @@ export default function Inventory() {
             >
               <ChevronLeft size={14} />
             </button>
+
             <button
               className="join-item btn btn-sm"
               disabled={page >= pages}
@@ -696,8 +778,8 @@ export default function Inventory() {
               <ChevronRight size={14} />
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {modal && (
         <InventoryModal

@@ -7,15 +7,12 @@ async function request(path, options = {}) {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...options.headers,
   };
-
   const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
-
   if (res.status === 401) {
     localStorage.removeItem("sp_token");
     window.location.href = "/login";
     return;
   }
-
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     if (body.errors) {
@@ -25,11 +22,11 @@ async function request(path, options = {}) {
     }
     throw new Error(body.error || `Request failed (${res.status})`);
   }
-
   return res.json();
 }
 
 export const api = {
+  // ── Auth ──────────────────────────────────────────────────────────────────
   login: (data) =>
     request("/auth/login", { method: "POST", body: JSON.stringify(data) }),
   me: () => request("/auth/me"),
@@ -39,6 +36,7 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
+  // ── Inventory ─────────────────────────────────────────────────────────────
   getInventory: (params = {}) => {
     const q = new URLSearchParams(params).toString();
     return request(`/inventory${q ? "?" + q : ""}`);
@@ -51,6 +49,7 @@ export const api = {
   deleteInventoryItem: (id) =>
     request(`/inventory/${id}`, { method: "DELETE" }),
 
+  // ── Transactions ──────────────────────────────────────────────────────────
   getTransactions: (params = {}) => {
     const q = new URLSearchParams(params).toString();
     return request(`/transactions${q ? "?" + q : ""}`);
@@ -65,5 +64,37 @@ export const api = {
   deleteTransaction: (id) =>
     request(`/transactions/${id}`, { method: "DELETE" }),
 
+  // ── Dashboard & Reports ───────────────────────────────────────────────────
   getDashboard: () => request("/dashboard"),
+
+  // ── Users (admin only) ────────────────────────────────────────────────────
+  getUsers: () => request("/users"),
+  createUser: (data) =>
+    request("/users", { method: "POST", body: JSON.stringify(data) }),
+  toggleUserActive: (id) => request(`/users/${id}/toggle`, { method: "PATCH" }),
+  changeUserRole: (id, role) =>
+    request(`/users/${id}/role`, {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
+    }),
+  resetUserPassword: (id, new_password) =>
+    request(`/users/${id}/reset-password`, {
+      method: "POST",
+      body: JSON.stringify({ new_password }),
+    }),
+
+  // ── System info (admin only) ──────────────────────────────────────────────
+  getSystemInfo: () => request("/system-info"),
+
+  // ── Audit log ─────────────────────────────────────────────────────────────
+  getAuditLog: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return request(`/audit-log${q ? "?" + q : ""}`);
+  },
+
+  // ── Backups ───────────────────────────────────────────────────────────────
+  getBackups: () => request("/backup"),
+  createBackup: () => request("/backup", { method: "POST" }),
+  deleteBackup: (filename) =>
+    request(`/backup/${filename}`, { method: "DELETE" }),
 };

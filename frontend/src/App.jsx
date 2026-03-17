@@ -8,15 +8,24 @@ import Transactions from "./pages/Transactions";
 import Reports from "./pages/Reports";
 import AuditLog from "./pages/AuditLog";
 import Backups from "./pages/Backups";
-
 import Login from "./pages/Login";
 import Settings from "./pages/Settings";
+
+const ROLE_LEVEL = { viewer: 1, manager: 2, admin: 3 };
+
+// Redirects to "/" if user doesn't have the required role
+function RequireRole({ minRole, children }) {
+  const { user } = useAuth();
+  const userLevel = ROLE_LEVEL[user?.role] ?? 0;
+  const required = ROLE_LEVEL[minRole] ?? 99;
+  if (userLevel < required) return <Navigate to="/" replace />;
+  return children;
+}
 
 function AppLayout() {
   const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Still loading (checking token)
   if (user === undefined)
     return (
       <div className="min-h-screen flex items-center justify-center bg-base-100">
@@ -24,7 +33,6 @@ function AppLayout() {
       </div>
     );
 
-  // Not logged in
   if (!user)
     return (
       <Routes>
@@ -33,18 +41,15 @@ function AppLayout() {
       </Routes>
     );
 
-  // Logged in
   return (
     <div className="flex h-screen overflow-hidden bg-base-100">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
       {sidebarOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-20 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
-
       <div className="flex-1 flex flex-col min-w-0">
         <header className="lg:hidden flex items-center gap-3 px-4 py-3 bg-base-200 border-b border-base-300 sticky top-0 z-10">
           <button
@@ -68,16 +73,35 @@ function AppLayout() {
           </button>
           <span className="font-black text-lg logo-gradient">StockPilot</span>
         </header>
-
         <main className="flex-1 overflow-auto">
           <Routes>
+            {/* All roles */}
             <Route path="/" element={<Dashboard />} />
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/transactions" element={<Transactions />} />
             <Route path="/reports" element={<Reports />} />
-            <Route path="/audit-log" element={<AuditLog />} />
-            <Route path="/backups" element={<Backups />} />
             <Route path="/settings" element={<Settings />} />
+
+            {/* Manager and above */}
+            <Route
+              path="/audit-log"
+              element={
+                <RequireRole minRole="manager">
+                  <AuditLog />
+                </RequireRole>
+              }
+            />
+
+            {/* Admin only */}
+            <Route
+              path="/backups"
+              element={
+                <RequireRole minRole="admin">
+                  <Backups />
+                </RequireRole>
+              }
+            />
+
             <Route path="/login" element={<Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

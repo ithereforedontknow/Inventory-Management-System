@@ -111,7 +111,8 @@ export default function Login() {
           </form>
 
           <div className="mt-6 pt-4 border-t border-base-content/10 text-center text-xs text-base-content/30 font-mono">
-            Default: admin / Admin1234
+            Admin: admin / Admin1234 / Manager: manager / Manager1234 / Viewer:
+            viewer / Viewer1234
           </div>
         </div>
       </div>

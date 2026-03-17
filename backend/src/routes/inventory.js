@@ -76,8 +76,8 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// POST/PUT/DELETE — manager and above
-router.post("/", requireRole("manager"), async (req, res) => {
+// POST — viewer and above can create
+router.post("/", requireRole("viewer"), async (req, res) => {
   try {
     const { name, price = 0, count_beginning = 0, lead_time = 3 } = req.body;
     const errors = {};
@@ -129,6 +129,7 @@ router.post("/", requireRole("manager"), async (req, res) => {
   }
 });
 
+// PUT — manager and above only
 router.put("/:id", requireRole("manager"), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
@@ -203,6 +204,7 @@ router.put("/:id", requireRole("manager"), async (req, res) => {
   }
 });
 
+// DELETE — manager and above only
 router.delete("/:id", requireRole("manager"), async (req, res) => {
   try {
     const [[existing]] = await pool.query(

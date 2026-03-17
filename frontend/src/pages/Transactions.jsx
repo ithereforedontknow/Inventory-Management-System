@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { api } from "../api";
+import { useAuth } from "../context/AuthContext";
 import toast from "react-hot-toast";
 import {
   Plus,
@@ -212,9 +213,7 @@ function TransactionModal({ tx, onClose, onSaved }) {
           {form.transaction_type === "Adjustment" && (
             <div className="bg-info/10 border border-info/20 rounded-xl p-3 text-xs text-info/80">
               Use <strong>Adjustment</strong> for corrections, damage,
-              shrinkage, or opening stock changes. Positive quantity adds stock,
-              negative removes it — enter a positive number and the system
-              records it as a reduction.
+              shrinkage, or opening stock changes.
             </div>
           )}
 
@@ -308,6 +307,9 @@ function downloadCSV(url, filename) {
 }
 
 export default function Transactions() {
+  const { user } = useAuth();
+  const canEdit = user?.role === "manager" || user?.role === "admin";
+
   const [txs, setTxs] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -316,7 +318,7 @@ export default function Transactions() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [itemSearch, setItemSearch] = useState("");
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(20);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -345,7 +347,6 @@ export default function Transactions() {
   useEffect(() => {
     fetchTxs();
   }, [fetchTxs]);
-
   useEffect(() => {
     setPage(1);
   }, [typeFilter, dateFrom, dateTo, debouncedSearch, limit]);
@@ -374,16 +375,8 @@ export default function Transactions() {
 
   const hasFilters = typeFilter || dateFrom || dateTo || itemSearch;
 
-  function clearFilters() {
-    setTypeFilter("");
-    setDateFrom("");
-    setDateTo("");
-    setItemSearch("");
-  }
-
   return (
     <div className="p-4 sm:p-6 lg:p-8">
-      {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
@@ -395,13 +388,14 @@ export default function Transactions() {
         </div>
         <div className="flex gap-2">
           <button
-            className="btn btn-ghost sm:btn-md btn-sm gap-1.5"
+            className="btn btn-ghost btn-sm sm:btn-md gap-1.5"
             onClick={exportCSV}
             title="Export to CSV"
           >
             <Download size={14} />
             <span className="hidden sm:inline">Export</span>
           </button>
+          {/* All roles can add */}
           <button
             className="btn btn-primary btn-sm sm:btn-md gap-2"
             onClick={() => setModal("add")}
@@ -413,13 +407,9 @@ export default function Transactions() {
         </div>
       </div>
 
-      {/* Search + type filter — same layout as Inventory */}
+      {/* Search + type filter */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
-          {/* <Search
-            size={15}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40 pointer-events-none"
-          />*/}
           <input
             type="text"
             placeholder="Search by item name..."
@@ -449,7 +439,12 @@ export default function Transactions() {
           {hasFilters && (
             <button
               className="btn btn-ghost btn-xs text-base-content/40"
-              onClick={clearFilters}
+              onClick={() => {
+                setTypeFilter("");
+                setDateFrom("");
+                setDateTo("");
+                setItemSearch("");
+              }}
             >
               <X size={12} /> Clear
             </button>
@@ -490,20 +485,20 @@ export default function Transactions() {
                 <th className="text-right">Qty</th>
                 <th>Invoice #</th>
                 <th>Notes</th>
-                <th>Actions</th>
+                {canEdit && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-12">
+                  <td colSpan={canEdit ? 8 : 7} className="text-center py-12">
                     <span className="loading loading-spinner loading-md text-primary" />
                   </td>
                 </tr>
               ) : txs.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={canEdit ? 8 : 7}
                     className="text-center py-12 text-base-content/30"
                   >
                     <ArrowUpRight
@@ -527,13 +522,7 @@ export default function Transactions() {
                       <TypeBadge type={tx.transaction_type} />
                     </td>
                     <td
-                      className={`text-right font-mono font-bold text-sm ${
-                        tx.transaction_type === "Purchased"
-                          ? "text-primary"
-                          : tx.transaction_type === "Sold"
-                            ? "text-secondary"
-                            : "text-info"
-                      }`}
+                      className={`text-right font-mono font-bold text-sm ${tx.transaction_type === "Purchased" ? "text-primary" : tx.transaction_type === "Sold" ? "text-secondary" : "text-info"}`}
                     >
                       {tx.transaction_type === "Purchased"
                         ? "+"
@@ -548,22 +537,24 @@ export default function Transactions() {
                     <td className="text-xs text-base-content/60 max-w-xs truncate">
                       {tx.notes || "—"}
                     </td>
-                    <td>
-                      <div className="flex gap-1">
-                        <button
-                          className="btn btn-ghost btn-xs btn-circle hover:text-primary"
-                          onClick={() => setModal(tx)}
-                        >
-                          <Edit2 size={13} />
-                        </button>
-                        <button
-                          className="btn btn-ghost btn-xs btn-circle hover:text-error"
-                          onClick={() => setDeleteTarget(tx)}
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      </div>
-                    </td>
+                    {canEdit && (
+                      <td>
+                        <div className="flex gap-1">
+                          <button
+                            className="btn btn-ghost btn-xs btn-circle hover:text-primary"
+                            onClick={() => setModal(tx)}
+                          >
+                            <Edit2 size={13} />
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-xs btn-circle hover:text-error"
+                            onClick={() => setDeleteTarget(tx)}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))
               )}
@@ -595,29 +586,27 @@ export default function Transactions() {
                 </div>
                 <div className="flex items-center gap-1">
                   <TypeBadge type={tx.transaction_type} />
-                  <button
-                    className="btn btn-ghost btn-xs btn-circle hover:text-primary"
-                    onClick={() => setModal(tx)}
-                  >
-                    <Edit2 size={13} />
-                  </button>
-                  <button
-                    className="btn btn-ghost btn-xs btn-circle hover:text-error"
-                    onClick={() => setDeleteTarget(tx)}
-                  >
-                    <Trash2 size={13} />
-                  </button>
+                  {canEdit && (
+                    <>
+                      <button
+                        className="btn btn-ghost btn-xs btn-circle hover:text-primary"
+                        onClick={() => setModal(tx)}
+                      >
+                        <Edit2 size={13} />
+                      </button>
+                      <button
+                        className="btn btn-ghost btn-xs btn-circle hover:text-error"
+                        onClick={() => setDeleteTarget(tx)}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="flex items-center justify-between">
                 <div
-                  className={`text-xl font-black ${
-                    tx.transaction_type === "Purchased"
-                      ? "text-primary"
-                      : tx.transaction_type === "Sold"
-                        ? "text-secondary"
-                        : "text-info"
-                  }`}
+                  className={`text-xl font-black ${tx.transaction_type === "Purchased" ? "text-primary" : tx.transaction_type === "Sold" ? "text-secondary" : "text-info"}`}
                 >
                   {tx.transaction_type === "Purchased"
                     ? "+"

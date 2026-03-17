@@ -113,8 +113,8 @@ function validate(body) {
   return errors;
 }
 
-// POST/PUT/DELETE — manager and above
-router.post("/", requireRole("manager"), async (req, res) => {
+// POST — viewer and above can create
+router.post("/", requireRole("viewer"), async (req, res) => {
   const conn = await pool.getConnection();
   try {
     const errors = validate(req.body);
@@ -174,6 +174,7 @@ router.post("/", requireRole("manager"), async (req, res) => {
   }
 });
 
+// PUT — manager and above only
 router.put("/:id", requireRole("manager"), async (req, res) => {
   const conn = await pool.getConnection();
   try {
@@ -256,6 +257,7 @@ router.put("/:id", requireRole("manager"), async (req, res) => {
   }
 });
 
+// DELETE — manager and above only
 router.delete("/:id", requireRole("manager"), async (req, res) => {
   try {
     const [[existing]] = await pool.query(

@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { api } from "../api";
+import { useAuth } from "../context/AuthContext";
 import toast from "react-hot-toast";
 import {
   Plus,
@@ -119,7 +120,6 @@ function InventoryModal({ item, onClose, onSaved }) {
             <X size={16} />
           </button>
         </div>
-
         <form onSubmit={handleSubmit} noValidate className="space-y-4">
           <div className="form-control">
             <label className="label pb-1">
@@ -136,7 +136,6 @@ function InventoryModal({ item, onClose, onSaved }) {
             />
             <FieldError error={errors.name} />
           </div>
-
           <div className="grid grid-cols-3 gap-3">
             <div className="form-control">
               <label className="label pb-1">
@@ -185,7 +184,6 @@ function InventoryModal({ item, onClose, onSaved }) {
               <FieldError error={errors.lead_time} />
             </div>
           </div>
-
           <div className="bg-base-300/40 border border-base-content/10 rounded-xl p-3 text-xs text-base-content/50 flex gap-2">
             <Info size={13} className="flex-shrink-0 mt-0.5 text-primary/60" />
             <span>
@@ -194,11 +192,9 @@ function InventoryModal({ item, onClose, onSaved }) {
               </strong>{" "}
               and{" "}
               <strong className="text-base-content/70">Reorder Point</strong>{" "}
-              are automatically calculated from your transaction history — no
-              manual entry needed.
+              are automatically calculated from your transaction history.
             </span>
           </div>
-
           <div className="flex justify-end gap-3 pt-1">
             <button
               type="button"
@@ -229,7 +225,7 @@ function DetailRow({ item }) {
   const isNeg = parseInt(item.count_ending) < 0;
   return (
     <tr className="bg-base-300/20">
-      <td colSpan={9} className="px-4 pb-4 pt-2">
+      <td colSpan={11} className="px-4 pb-4 pt-2">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <CalcField
             label="Avg Daily Usage"
@@ -271,13 +267,16 @@ function DetailRow({ item }) {
 }
 
 export default function Inventory() {
+  const { user } = useAuth();
+  const canEdit = user?.role === "manager" || user?.role === "admin";
+
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [limit, setLimit] = useState(10);
+  const [limit, setLimit] = useState(15);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -306,7 +305,6 @@ export default function Inventory() {
   useEffect(() => {
     fetchItems();
   }, [fetchItems]);
-
   useEffect(() => {
     setPage(1);
   }, [debouncedSearch, statusFilter, limit]);
@@ -326,7 +324,6 @@ export default function Inventory() {
     parseFloat(item.reorder_point) > 0 &&
     parseInt(item.count_ending) < parseFloat(item.reorder_point);
   const isNegative = (item) => parseInt(item.count_ending) < 0;
-
   const calculateToPurchase = (item) =>
     isLowStock(item)
       ? Math.max(
@@ -335,7 +332,6 @@ export default function Inventory() {
         )
       : 0;
 
-  // Status filter is client-side — no extra API param needed
   const visibleItems = statusFilter
     ? items.filter((item) => {
         if (statusFilter === "negative") return isNegative(item);
@@ -351,7 +347,6 @@ export default function Inventory() {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8">
-      {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
@@ -361,6 +356,7 @@ export default function Inventory() {
             {total} items tracked
           </p>
         </div>
+        {/* All roles can add */}
         <button
           className="btn btn-primary btn-sm sm:btn-md gap-2"
           onClick={() => setModal("add")}
@@ -374,10 +370,6 @@ export default function Inventory() {
       {/* Search + Status filter */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
-          {/* <Search
-            size={15}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40 pointer-events-none"
-          />*/}
           <input
             type="text"
             placeholder="Search inventory..."
@@ -424,7 +416,7 @@ export default function Inventory() {
         Click any row to see calculated metrics
       </p>
 
-      {/* ── Desktop Table ── */}
+      {/* Desktop table */}
       <div className="glass-card overflow-hidden hidden md:block">
         <div className="overflow-x-auto">
           <table className="table table-sm">
@@ -440,20 +432,20 @@ export default function Inventory() {
                 <th className="text-right text-primary">Reorder Pt.</th>
                 <th>Status</th>
                 <th className="text-right text-error">To Purchase</th>
-                <th>Actions</th>
+                {canEdit && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={11} className="text-center py-12">
+                  <td colSpan={canEdit ? 11 : 10} className="text-center py-12">
                     <span className="loading loading-spinner loading-md text-primary" />
                   </td>
                 </tr>
               ) : visibleItems.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={11}
+                    colSpan={canEdit ? 11 : 10}
                     className="text-center py-12 text-base-content/30"
                   >
                     <Package size={36} className="mx-auto mb-3 opacity-30" />
@@ -537,22 +529,24 @@ export default function Inventory() {
                       >
                         {calculateToPurchase(item)}
                       </td>
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <div className="flex gap-1">
-                          <button
-                            className="btn btn-ghost btn-xs btn-circle hover:text-primary"
-                            onClick={() => setModal(item)}
-                          >
-                            <Edit2 size={13} />
-                          </button>
-                          <button
-                            className="btn btn-ghost btn-xs btn-circle hover:text-error"
-                            onClick={() => setDeleteTarget(item)}
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        </div>
-                      </td>
+                      {canEdit && (
+                        <td onClick={(e) => e.stopPropagation()}>
+                          <div className="flex gap-1">
+                            <button
+                              className="btn btn-ghost btn-xs btn-circle hover:text-primary"
+                              onClick={() => setModal(item)}
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                            <button
+                              className="btn btn-ghost btn-xs btn-circle hover:text-error"
+                              onClick={() => setDeleteTarget(item)}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>,
                     open && <DetailRow key={`detail-${item.id}`} item={item} />,
                   ];
@@ -563,7 +557,7 @@ export default function Inventory() {
         </div>
       </div>
 
-      {/* ── Mobile Cards ── */}
+      {/* Mobile cards */}
       <div className="md:hidden space-y-3">
         {loading ? (
           <div className="text-center py-12">
@@ -619,21 +613,24 @@ export default function Inventory() {
                         OK
                       </span>
                     )}
-                    <button
-                      className="btn btn-ghost btn-xs btn-circle hover:text-primary"
-                      onClick={() => setModal(item)}
-                    >
-                      <Edit2 size={13} />
-                    </button>
-                    <button
-                      className="btn btn-ghost btn-xs btn-circle hover:text-error"
-                      onClick={() => setDeleteTarget(item)}
-                    >
-                      <Trash2 size={13} />
-                    </button>
+                    {canEdit && (
+                      <>
+                        <button
+                          className="btn btn-ghost btn-xs btn-circle hover:text-primary"
+                          onClick={() => setModal(item)}
+                        >
+                          <Edit2 size={13} />
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-xs btn-circle hover:text-error"
+                          onClick={() => setDeleteTarget(item)}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
-
                 <div className="grid grid-cols-3 gap-2 mb-3">
                   {[
                     {
@@ -684,14 +681,12 @@ export default function Inventory() {
                     </div>
                   ))}
                 </div>
-
                 <button
                   className="w-full text-xs text-base-content/40 hover:text-base-content/60 flex items-center justify-center gap-1 py-1"
                   onClick={() => setExpanded(open ? null : item.id)}
                 >
                   <Info size={11} /> {open ? "Hide" : "Show"} calculated metrics
                 </button>
-
                 {open && (
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <CalcField
@@ -734,7 +729,7 @@ export default function Inventory() {
         )}
       </div>
 
-      {/* ── Pagination ── */}
+      {/* Pagination */}
       <div className="flex items-center justify-between mt-4 flex-wrap gap-2">
         <div className="flex items-center gap-3">
           <span className="text-xs text-base-content/50 font-mono">

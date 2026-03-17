@@ -13,28 +13,40 @@ import {
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
-const links = [
-  { to: "/", icon: LayoutDashboard, label: "Dashboard" },
-  { to: "/inventory", icon: Package, label: "Inventory" },
-  { to: "/transactions", icon: ArrowLeftRight, label: "Transactions" },
-  { to: "/reports", icon: TrendingUp, label: "Reports" },
-  { to: "/audit-log", icon: FileClock, label: "Audit Log" },
-  { to: "/backups", icon: DatabaseBackup, label: "Backups" },
+const ROLE_LEVEL = { viewer: 1, manager: 2, admin: 3 };
+
+const ALL_LINKS = [
+  { to: "/", icon: LayoutDashboard, label: "Dashboard", minRole: "viewer" },
+  { to: "/inventory", icon: Package, label: "Inventory", minRole: "viewer" },
+  {
+    to: "/transactions",
+    icon: ArrowLeftRight,
+    label: "Transactions",
+    minRole: "viewer",
+  },
+  { to: "/reports", icon: TrendingUp, label: "Reports", minRole: "viewer" },
+  { to: "/audit-log", icon: FileClock, label: "Audit Log", minRole: "manager" },
+  { to: "/backups", icon: DatabaseBackup, label: "Backups", minRole: "admin" },
 ];
 
 export default function Sidebar({ open, onClose }) {
   const { user, logout } = useAuth();
 
+  const userLevel = ROLE_LEVEL[user?.role] ?? 0;
+  const visibleLinks = ALL_LINKS.filter(
+    ({ minRole }) => userLevel >= (ROLE_LEVEL[minRole] ?? 99),
+  );
+
   return (
     <aside
       className={`
-      fixed lg:static inset-y-0 left-0 z-30
-      w-64 min-h-screen bg-base-200 border-r border-base-300
-      flex flex-col
-      transform transition-transform duration-200 ease-in-out
-      ${open ? "translate-x-0" : "-translate-x-full"}
-      lg:translate-x-0
-    `}
+        fixed lg:static inset-y-0 left-0 z-30
+        w-64 min-h-screen bg-base-200 border-r border-base-300
+        flex flex-col
+        transform transition-transform duration-200 ease-in-out
+        ${open ? "translate-x-0" : "-translate-x-full"}
+        lg:translate-x-0
+      `}
     >
       <div className="p-6 border-b border-base-300 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -62,7 +74,7 @@ export default function Sidebar({ open, onClose }) {
         <div className="text-xs font-semibold text-base-content/30 uppercase tracking-widest mb-2 px-4">
           Menu
         </div>
-        {links.map(({ to, icon: Icon, label }) => (
+        {visibleLinks.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
             to={to}
@@ -92,7 +104,6 @@ export default function Sidebar({ open, onClose }) {
         </NavLink>
       </nav>
 
-      {/* User info + logout */}
       <div className="p-4 border-t border-base-300">
         <div className="flex items-center justify-between">
           <div className="min-w-0">

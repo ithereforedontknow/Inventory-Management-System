@@ -1,7 +1,6 @@
 const express = require("express");
 const pool = require("../db/pool");
 const { requireAuth } = require("../Middleware/auth");
-
 const router = express.Router();
 router.use(requireAuth);
 
@@ -11,7 +10,7 @@ router.get("/", async (req, res) => {
       "SELECT COUNT(*) as total_items FROM inventory_items",
     );
 
-    // Low stock: ending count <= computed reorder point, and item has sales history
+    // Low stock count
     const [lowStockRows] = await pool.execute(`
       SELECT COUNT(*) as cnt FROM inventory_items i
       WHERE (
@@ -34,9 +33,54 @@ router.get("/", async (req, res) => {
     const [[{ total_purchased }]] = await pool.execute(
       "SELECT COALESCE(SUM(quantity), 0) as total_purchased FROM transactions WHERE transaction_type = 'Purchased'",
     );
+
     const [[{ total_sold }]] = await pool.execute(
       "SELECT COALESCE(SUM(quantity), 0) as total_sold FROM transactions WHERE transaction_type = 'Sold'",
     );
+
+    // Total stock value — sum of (ending count × price) for items with positive stock
+    const [[{ stock_value }]] = await pool.execute(`
+      SELECT COALESCE(SUM(
+        (
+          i.count_beginning
+          + COALESCE((SELECT SUM(t.quantity) FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Purchased'), 0)
+          - COALESCE((SELECT SUM(t.quantity) FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Sold'), 0)
+        ) * i.price
+      ), 0) as stock_value
+      FROM inventory_items i
+      WHERE (
+        i.count_beginning
+        + COALESCE((SELECT SUM(t.quantity) FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Purchased'), 0)
+        - COALESCE((SELECT SUM(t.quantity) FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Sold'), 0)
+      ) > 0
+    `);
+
+    // Top 5 low stock items for the dashboard quick list
+    const [low_stock_items] = await pool.execute(`
+      SELECT
+        i.id,
+        i.name,
+        i.lead_time,
+        (
+          i.count_beginning
+          + COALESCE((SELECT SUM(t.quantity) FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Purchased'), 0)
+          - COALESCE((SELECT SUM(t.quantity) FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Sold'), 0)
+        ) AS count_ending,
+        COALESCE((
+          SELECT i.lead_time * (MAX(t.quantity) - SUM(t.quantity) / NULLIF(COUNT(DISTINCT t.date), 0))
+          FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Sold'
+        ), 0) AS safety_stock,
+        COALESCE((
+          SELECT
+            (SUM(t.quantity) / NULLIF(COUNT(DISTINCT t.date), 0)) * i.lead_time
+            + i.lead_time * (MAX(t.quantity) - SUM(t.quantity) / NULLIF(COUNT(DISTINCT t.date), 0))
+          FROM transactions t WHERE t.inventory_id = i.id AND t.transaction_type = 'Sold'
+        ), 0) AS reorder_point
+      FROM inventory_items i
+      HAVING reorder_point > 0 AND count_ending <= reorder_point
+      ORDER BY count_ending ASC
+      LIMIT 5
+    `);
 
     const [recent_transactions] = await pool.execute(`
       SELECT t.*, i.name AS inventory_name
@@ -59,6 +103,8 @@ router.get("/", async (req, res) => {
       low_stock_count,
       total_purchased,
       total_sold,
+      stock_value: parseFloat(stock_value) || 0,
+      low_stock_items,
       recent_transactions,
       monthly_stats,
     });

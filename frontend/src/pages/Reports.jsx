@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   AreaChart,
   Area,
@@ -22,9 +22,9 @@ import {
   ShoppingCart,
   Filter,
   X,
+  Printer,
 } from "lucide-react";
 import toast from "react-hot-toast";
-import { useDebounce } from "../hooks/useDebounce";
 
 const COLORS = [
   "#6366f1",
@@ -68,6 +68,104 @@ function downloadCSV(url, filename) {
     .catch(() => toast.error("Export failed"));
 }
 
+// ── Print reorder suggestions ─────────────────────────────────────────────────
+function printReorderSuggestions(lowStock) {
+  const date = new Date().toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
+  const rows = lowStock
+    .map(
+      (item) => `
+    <tr>
+      <td>${item.name}</td>
+      <td class="${parseInt(item.count_ending) < 0 ? "neg" : "warn"}">${parseInt(item.count_ending)}</td>
+      <td>${parseFloat(item.reorder_point).toFixed(0)}</td>
+      <td>${parseFloat(item.safety_stock).toFixed(0)}</td>
+      <td>${item.lead_time}d</td>
+      <td class="suggested">${item.suggested_order} units</td>
+    </tr>
+  `,
+    )
+    .join("");
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8" />
+      <title>Reorder Suggestions — ${date}</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1a1a2e; padding: 32px; font-size: 13px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 2px solid #e5e7eb; }
+        .title { font-size: 22px; font-weight: 900; letter-spacing: -0.5px; }
+        .subtitle { font-size: 12px; color: #6b7280; margin-top: 4px; font-family: monospace; }
+        .meta { text-align: right; font-size: 11px; color: #9ca3af; font-family: monospace; }
+        .alert { background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 10px 14px; margin-bottom: 20px; font-size: 12px; color: #92400e; }
+        table { width: 100%; border-collapse: collapse; }
+        thead tr { background: #f3f4f6; }
+        th { padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; font-weight: 600; }
+        th:not(:first-child) { text-align: right; }
+        td { padding: 10px 12px; border-bottom: 1px solid #f3f4f6; font-family: monospace; }
+        td:first-child { font-family: inherit; font-weight: 600; }
+        td:not(:first-child) { text-align: right; }
+        tr:last-child td { border-bottom: none; }
+        tr:nth-child(even) { background: #f9fafb; }
+        .warn { color: #d97706; font-weight: 700; }
+        .neg { color: #dc2626; font-weight: 700; }
+        .suggested { color: #d97706; font-weight: 700; }
+        .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af; font-family: monospace; display: flex; justify-content: space-between; }
+        @media print {
+          body { padding: 16px; }
+          @page { margin: 1cm; }
+        }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div>
+          <div class="title">Reorder Suggestions</div>
+          <div class="subtitle">Items where ending stock ≤ reorder point</div>
+        </div>
+        <div class="meta">
+          <div>Generated: ${date}</div>
+          <div>${lowStock.length} item${lowStock.length !== 1 ? "s" : ""} need reordering</div>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Current Stock</th>
+            <th>Reorder Point</th>
+            <th>Safety Stock</th>
+            <th>Lead Time</th>
+            <th>Suggested Order</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <div class="footer">
+        <span>StockPilot · Reorder Report</span>
+        <span>${date}</span>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const win = window.open("", "_blank", "width=900,height=700");
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  // Small delay so styles load before print dialog
+  setTimeout(() => {
+    win.print();
+  }, 400);
+}
+
 export default function Reports() {
   const [inventory, setInventory] = useState([]);
   const [transactions, setTransactions] = useState([]);
@@ -77,7 +175,6 @@ export default function Reports() {
 
   const hasFilters = dateFrom || dateTo;
 
-  // Fetch all transactions for the selected range (up to 1000 — enough for charts)
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -101,7 +198,6 @@ export default function Reports() {
     fetchData();
   }, [fetchData]);
 
-  // Build monthly trend from transactions
   const chartData = (() => {
     const map = {};
     for (const tx of transactions) {
@@ -114,7 +210,6 @@ export default function Reports() {
     return Object.values(map).sort((a, b) => a.month.localeCompare(b.month));
   })();
 
-  // Top selling — from transactions in range
   const topSellingMap = {};
   for (const tx of transactions) {
     if (tx.transaction_type !== "Sold") continue;
@@ -126,7 +221,6 @@ export default function Reports() {
     .sort((a, b) => b.sold - a.sold)
     .slice(0, 8);
 
-  // Pie + reorder use full inventory (not date-filtered — stock is current)
   const pieData = inventory
     .filter((i) => parseInt(i.count_ending) > 0)
     .map((i) => ({ name: i.name, value: parseInt(i.count_ending) }));
@@ -241,7 +335,6 @@ export default function Reports() {
         </div>
       ) : (
         <>
-          {/* Negative stock alert */}
           {negStock.length > 0 && (
             <div className="alert alert-error mb-4 text-sm">
               <AlertTriangle size={16} />
@@ -417,13 +510,26 @@ export default function Reports() {
 
           {/* Reorder suggestions */}
           <div className="glass-card p-4 sm:p-6">
-            <h2 className="text-base sm:text-lg font-bold mb-1 flex items-center gap-2">
-              <AlertTriangle size={16} className="text-warning" />
-              Reorder Suggestions
-            </h2>
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <AlertTriangle size={16} className="text-warning" />
+                Reorder Suggestions
+              </h2>
+              {lowStock.length > 0 && (
+                <button
+                  className="btn btn-ghost btn-sm gap-1.5"
+                  onClick={() => printReorderSuggestions(lowStock)}
+                  title="Print / Save as PDF"
+                >
+                  <Printer size={14} />
+                  <span className="hidden sm:inline">Print / PDF</span>
+                </button>
+              )}
+            </div>
             <p className="text-xs text-base-content/40 font-mono mb-4">
               Items where ending stock ≤ reorder point
             </p>
+
             {lowStock.length === 0 ? (
               <div className="text-center py-8 text-base-content/30">
                 <Package size={32} className="mx-auto mb-2 opacity-30" />

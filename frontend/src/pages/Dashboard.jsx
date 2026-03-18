@@ -14,6 +14,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   ArrowLeftRight,
+  DollarSign,
 } from "lucide-react";
 import { api } from "../api";
 import { format } from "date-fns";
@@ -34,6 +35,15 @@ const CustomTooltip = ({ active, payload, label }) => {
   return null;
 };
 
+function formatCurrency(val) {
+  if (val >= 1_000_000) return `${(val / 1_000_000).toFixed(1)}M`;
+  if (val >= 1_000) return `${(val / 1_000).toFixed(1)}K`;
+  return val.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
+
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -48,7 +58,7 @@ export default function Dashboard() {
   if (loading)
     return (
       <div className="flex items-center justify-center h-full min-h-[50vh]">
-        <span className="loading loading-spinner loading-lg text-primary"></span>
+        <span className="loading loading-spinner loading-lg text-primary" />
       </div>
     );
 
@@ -66,14 +76,25 @@ export default function Dashboard() {
     {
       label: "Total Items",
       value: data?.total_items ?? 0,
+      display: (data?.total_items ?? 0).toLocaleString(),
       icon: Package,
       color: "text-primary",
       bg: "bg-primary/10",
       border: "border-primary/20",
     },
     {
+      label: "Stock Value",
+      value: data?.stock_value ?? 0,
+      display: formatCurrency(data?.stock_value ?? 0),
+      icon: DollarSign,
+      color: "text-success",
+      bg: "bg-success/10",
+      border: "border-success/20",
+    },
+    {
       label: "Low Stock Alerts",
       value: data?.low_stock_count ?? 0,
+      display: (data?.low_stock_count ?? 0).toLocaleString(),
       icon: AlertTriangle,
       color: "text-error",
       bg: "bg-error/10",
@@ -83,20 +104,24 @@ export default function Dashboard() {
     {
       label: "Total Purchased",
       value: data?.total_purchased ?? 0,
+      display: (data?.total_purchased ?? 0).toLocaleString(),
       icon: ArrowUpRight,
-      color: "text-success",
-      bg: "bg-success/10",
-      border: "border-success/20",
+      color: "text-info",
+      bg: "bg-info/10",
+      border: "border-info/20",
     },
     {
       label: "Total Sold",
       value: data?.total_sold ?? 0,
+      display: (data?.total_sold ?? 0).toLocaleString(),
       icon: ArrowDownRight,
       color: "text-secondary",
       bg: "bg-secondary/10",
       border: "border-secondary/20",
     },
   ];
+
+  const lowStockItems = data?.low_stock_items ?? [];
 
   return (
     <div className="p-4 sm:p-6 lg:p-8">
@@ -110,34 +135,38 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {/* Stats Grid — 2 cols on mobile, 4 on xl */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4 mb-6">
-        {stats.map(({ label, value, icon: Icon, color, bg, border, glow }) => (
-          <div
-            key={label}
-            className={`stat-card border ${border} ${glow ? "glow-error" : ""}`}
-          >
-            <div className="flex items-start justify-between">
-              <div className="min-w-0">
-                <div className="text-base-content/50 text-xs sm:text-sm font-medium mb-1 truncate">
-                  {label}
+      {/* Stats Grid — 2 cols mobile, 3 cols md, 5 cols xl */}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 sm:gap-4 mb-6">
+        {stats.map(
+          ({ label, display, icon: Icon, color, bg, border, glow }) => (
+            <div
+              key={label}
+              className={`stat-card border ${border} ${glow ? "glow-error" : ""}`}
+            >
+              <div className="flex items-start justify-between">
+                <div className="min-w-0">
+                  <div className="text-base-content/50 text-xs sm:text-sm font-medium mb-1 truncate">
+                    {label}
+                  </div>
+                  <div
+                    className={`text-2xl sm:text-3xl font-black num ${color}`}
+                  >
+                    {display}
+                  </div>
                 </div>
-                <div className={`text-2xl sm:text-3xl font-black num ${color}`}>
-                  {value.toLocaleString()}
+                <div
+                  className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl ${bg} border ${border} flex items-center justify-center flex-shrink-0 ml-2`}
+                >
+                  <Icon size={16} className={`sm:w-5 sm:h-5 ${color}`} />
                 </div>
-              </div>
-              <div
-                className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl ${bg} border ${border} flex items-center justify-center flex-shrink-0 ml-2`}
-              >
-                <Icon size={16} className={`sm:w-5 sm:h-5 ${color}`} />
               </div>
             </div>
-          </div>
-        ))}
+          ),
+        )}
       </div>
 
-      {/* Chart + Recent — stack on mobile, side by side on xl */}
-      <div className="grid grid-cols-1 xl:grid-cols-5 gap-4 sm:gap-6">
+      {/* Chart + Recent */}
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-4 sm:gap-6 mb-4">
         <div className="xl:col-span-3 glass-card p-4 sm:p-6">
           <div className="flex items-center justify-between mb-4 sm:mb-6">
             <h2 className="text-base sm:text-lg font-bold">Monthly Activity</h2>
@@ -196,11 +225,7 @@ export default function Dashboard() {
                   className="flex items-center gap-3 p-2 sm:p-3 bg-base-300/50 rounded-xl hover:bg-base-300 transition-colors"
                 >
                   <div
-                    className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                      tx.transaction_type === "Purchased"
-                        ? "bg-primary/20"
-                        : "bg-secondary/20"
-                    }`}
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${tx.transaction_type === "Purchased" ? "bg-primary/20" : "bg-secondary/20"}`}
                   >
                     {tx.transaction_type === "Purchased" ? (
                       <ArrowUpRight size={14} className="text-primary" />
@@ -233,6 +258,79 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Low stock quick list */}
+      {lowStockItems.length > 0 && (
+        <div className="glass-card p-4 sm:p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+              <AlertTriangle size={16} className="text-warning" />
+              Low Stock Alert
+            </h2>
+            <a
+              href="/reports"
+              className="text-xs text-primary font-mono hover:underline"
+            >
+              View all in Reports →
+            </a>
+          </div>
+          <div className="space-y-2">
+            {lowStockItems.map((item) => {
+              const isNeg = parseInt(item.count_ending) < 0;
+              const pct =
+                parseFloat(item.reorder_point) > 0
+                  ? Math.max(
+                      0,
+                      Math.min(
+                        100,
+                        (parseInt(item.count_ending) /
+                          parseFloat(item.reorder_point)) *
+                          100,
+                      ),
+                    )
+                  : 0;
+              return (
+                <div
+                  key={item.id}
+                  className="flex items-center gap-3 p-2 sm:p-3 bg-base-300/40 rounded-xl"
+                >
+                  <div
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${isNeg ? "bg-error/20" : "bg-warning/20"}`}
+                  >
+                    <AlertTriangle
+                      size={13}
+                      className={isNeg ? "text-error" : "text-warning"}
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-semibold truncate">
+                        {item.name}
+                      </span>
+                      <span
+                        className={`text-xs font-mono font-bold ml-2 flex-shrink-0 ${isNeg ? "text-error" : "text-warning"}`}
+                      >
+                        {parseInt(item.count_ending)} /{" "}
+                        {parseFloat(item.reorder_point).toFixed(0)}
+                      </span>
+                    </div>
+                    {/* Stock level bar */}
+                    <div className="w-full bg-base-300 rounded-full h-1.5">
+                      <div
+                        className={`h-1.5 rounded-full transition-all ${isNeg ? "bg-error" : "bg-warning"}`}
+                        style={{ width: `${isNeg ? 0 : pct}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="text-xs text-base-content/40 font-mono flex-shrink-0">
+                    {item.lead_time}d
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

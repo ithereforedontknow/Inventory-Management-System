@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import toast from "react-hot-toast";
@@ -14,6 +14,7 @@ import {
   X,
   Info,
   TrendingDown,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useValidation, rules } from "../hooks/useValidation";
 import { FieldError, ConfirmModal } from "../components/FormComponents";
@@ -27,6 +28,38 @@ const STATUS_FILTERS = [
   { key: "negative", label: "Negative" },
   { key: "ok", label: "OK" },
 ];
+
+// All toggleable columns — key must match what's rendered in the row
+const ALL_COLUMNS = [
+  { key: "price", label: "Price" },
+  { key: "count_beginning", label: "Beginning" },
+  { key: "lead_time", label: "Lead Time" },
+  { key: "total_purchased", label: "Purchased" },
+  { key: "total_sold", label: "Sold" },
+  { key: "reorder_point", label: "Reorder Pt." },
+  { key: "to_purchase", label: "To Purchase" },
+];
+
+const DEFAULT_VISIBLE = {
+  price: true,
+  count_beginning: true,
+  lead_time: true,
+  total_purchased: true,
+  total_sold: true,
+  reorder_point: true,
+  to_purchase: true,
+};
+
+function loadVisibility() {
+  try {
+    const saved = localStorage.getItem("inv_col_visibility");
+    return saved
+      ? { ...DEFAULT_VISIBLE, ...JSON.parse(saved) }
+      : { ...DEFAULT_VISIBLE };
+  } catch {
+    return { ...DEFAULT_VISIBLE };
+  }
+}
 
 const inventoryRules = {
   name: (v) => rules.required("Name")(v) || rules.maxLength(255, "Name")(v),
@@ -221,11 +254,11 @@ function InventoryModal({ item, onClose, onSaved }) {
   );
 }
 
-function DetailRow({ item }) {
+function DetailRow({ item, colSpan }) {
   const isNeg = parseInt(item.count_ending) < 0;
   return (
     <tr className="bg-base-300/20">
-      <td colSpan={11} className="px-4 pb-4 pt-2">
+      <td colSpan={colSpan} className="px-4 pb-4 pt-2">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <CalcField
             label="Avg Daily Usage"
@@ -266,6 +299,74 @@ function DetailRow({ item }) {
   );
 }
 
+// Column visibility dropdown
+function ColumnToggle({ visible, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const hiddenCount = ALL_COLUMNS.filter((c) => !visible[c.key]).length;
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        className={`btn btn-ghost btn-sm gap-1.5 ${hiddenCount > 0 ? "text-primary" : ""}`}
+        onClick={() => setOpen((o) => !o)}
+        title="Show/hide columns"
+      >
+        <SlidersHorizontal size={15} />
+        <span className="hidden sm:inline">Columns</span>
+        {hiddenCount > 0 && (
+          <span className="badge badge-primary badge-xs">{hiddenCount}</span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 bg-base-200 border border-base-300 rounded-xl shadow-xl p-3 w-44">
+          <div className="text-xs font-semibold text-base-content/40 uppercase tracking-wider mb-2 px-1">
+            Visible Columns
+          </div>
+          {ALL_COLUMNS.map(({ key, label }) => (
+            <label
+              key={key}
+              className="flex items-center gap-2.5 px-1 py-1.5 rounded-lg hover:bg-base-300/50 cursor-pointer"
+            >
+              <input
+                type="checkbox"
+                className="checkbox checkbox-xs checkbox-primary"
+                checked={visible[key] ?? true}
+                onChange={(e) => onChange(key, e.target.checked)}
+              />
+              <span className="text-sm">{label}</span>
+            </label>
+          ))}
+          <div className="border-t border-base-300/50 mt-2 pt-2">
+            <button
+              className="text-xs text-base-content/40 hover:text-base-content/70 px-1"
+              onClick={() => {
+                const all = {};
+                ALL_COLUMNS.forEach((c) => {
+                  all[c.key] = true;
+                });
+                ALL_COLUMNS.forEach((c) => onChange(c.key, true));
+              }}
+            >
+              Show all
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Inventory() {
   const { user } = useAuth();
   const canEdit = user?.role === "manager" || user?.role === "admin";
@@ -281,8 +382,17 @@ export default function Inventory() {
   const [modal, setModal] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [expanded, setExpanded] = useState(null);
+  const [visible, setVisible] = useState(loadVisibility);
 
   const debouncedSearch = useDebounce(search, 300);
+
+  function toggleColumn(key, val) {
+    setVisible((prev) => {
+      const next = { ...prev, [key]: val };
+      localStorage.setItem("inv_col_visibility", JSON.stringify(next));
+      return next;
+    });
+  }
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
@@ -345,6 +455,18 @@ export default function Inventory() {
 
   const hasFilters = search || statusFilter;
 
+  // Count total visible columns for colSpan
+  const colCount =
+    3 + // Item, Ending, Status (always visible)
+    (visible.price ? 1 : 0) +
+    (visible.count_beginning ? 1 : 0) +
+    (visible.lead_time ? 1 : 0) +
+    (visible.total_purchased ? 1 : 0) +
+    (visible.total_sold ? 1 : 0) +
+    (visible.reorder_point ? 1 : 0) +
+    (visible.to_purchase ? 1 : 0) +
+    (canEdit ? 1 : 0);
+
   return (
     <div className="p-4 sm:p-6 lg:p-8">
       <div className="flex items-start justify-between mb-6">
@@ -356,7 +478,6 @@ export default function Inventory() {
             {total} items tracked
           </p>
         </div>
-        {/* All roles can add */}
         <button
           className="btn btn-primary btn-sm sm:btn-md gap-2"
           onClick={() => setModal("add")}
@@ -367,9 +488,13 @@ export default function Inventory() {
         </button>
       </div>
 
-      {/* Search + Status filter */}
+      {/* Search + Status filter + Column toggle */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
+          <Search
+            size={15}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-base-content/40 pointer-events-none"
+          />
           <input
             type="text"
             placeholder="Search inventory..."
@@ -409,6 +534,8 @@ export default function Inventory() {
               <X size={12} /> Clear
             </button>
           )}
+          {/* Column visibility toggle */}
+          <ColumnToggle visible={visible} onChange={toggleColumn} />
         </div>
       </div>
 
@@ -423,29 +550,39 @@ export default function Inventory() {
             <thead>
               <tr className="bg-base-300/50 text-base-content/60 text-xs uppercase tracking-wider font-semibold">
                 <th>Item</th>
-                <th className="text-right">Price</th>
-                <th className="text-right">Beginning</th>
-                <th className="text-right">Lead Time</th>
-                <th className="text-right text-success">Purchased</th>
-                <th className="text-right text-secondary">Sold</th>
+                {visible.price && <th className="text-right">Price</th>}
+                {visible.count_beginning && (
+                  <th className="text-right">Beginning</th>
+                )}
+                {visible.lead_time && <th className="text-right">Lead Time</th>}
+                {visible.total_purchased && (
+                  <th className="text-right text-success">Purchased</th>
+                )}
+                {visible.total_sold && (
+                  <th className="text-right text-secondary">Sold</th>
+                )}
                 <th className="text-right">Ending</th>
-                <th className="text-right text-primary">Reorder Pt.</th>
+                {visible.reorder_point && (
+                  <th className="text-right text-primary">Reorder Pt.</th>
+                )}
                 <th>Status</th>
-                <th className="text-right text-error">To Purchase</th>
+                {visible.to_purchase && (
+                  <th className="text-right text-error">To Purchase</th>
+                )}
                 {canEdit && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={canEdit ? 11 : 10} className="text-center py-12">
+                  <td colSpan={colCount} className="text-center py-12">
                     <span className="loading loading-spinner loading-md text-primary" />
                   </td>
                 </tr>
               ) : visibleItems.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={canEdit ? 11 : 10}
+                    colSpan={colCount}
                     className="text-center py-12 text-base-content/30"
                   >
                     <Package size={36} className="mx-auto mb-3 opacity-30" />
@@ -482,21 +619,31 @@ export default function Inventory() {
                           </span>
                         </div>
                       </td>
-                      <td className="text-right font-mono text-sm text-base-content/70">
-                        {parseFloat(item.price)}
-                      </td>
-                      <td className="text-right font-mono text-sm text-base-content/70">
-                        {parseInt(item.count_beginning)}
-                      </td>
-                      <td className="text-right font-mono text-sm text-base-content/60">
-                        {item.lead_time}d
-                      </td>
-                      <td className="text-right font-mono text-sm text-success">
-                        +{parseInt(item.total_purchased)}
-                      </td>
-                      <td className="text-right font-mono text-sm text-secondary">
-                        -{parseInt(item.total_sold)}
-                      </td>
+                      {visible.price && (
+                        <td className="text-right font-mono text-sm text-base-content/70">
+                          {parseFloat(item.price)}
+                        </td>
+                      )}
+                      {visible.count_beginning && (
+                        <td className="text-right font-mono text-sm text-base-content/70">
+                          {parseInt(item.count_beginning)}
+                        </td>
+                      )}
+                      {visible.lead_time && (
+                        <td className="text-right font-mono text-sm text-base-content/60">
+                          {item.lead_time}d
+                        </td>
+                      )}
+                      {visible.total_purchased && (
+                        <td className="text-right font-mono text-sm text-success">
+                          +{parseInt(item.total_purchased)}
+                        </td>
+                      )}
+                      {visible.total_sold && (
+                        <td className="text-right font-mono text-sm text-secondary">
+                          -{parseInt(item.total_sold)}
+                        </td>
+                      )}
                       <td
                         className={`text-right font-mono font-bold text-sm ${neg ? "text-error" : low ? "text-warning" : ""}`}
                       >
@@ -505,9 +652,11 @@ export default function Inventory() {
                           <span className="ml-1 text-error text-xs">⚠</span>
                         )}
                       </td>
-                      <td className="text-right font-mono text-sm text-primary">
-                        {parseFloat(item.reorder_point).toFixed(0)}
-                      </td>
+                      {visible.reorder_point && (
+                        <td className="text-right font-mono text-sm text-primary">
+                          {parseFloat(item.reorder_point).toFixed(0)}
+                        </td>
+                      )}
                       <td>
                         {neg ? (
                           <span className="badge badge-error badge-sm">
@@ -523,12 +672,14 @@ export default function Inventory() {
                           </span>
                         )}
                       </td>
-                      <td
-                        className="text-right font-mono text-sm text-error"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {calculateToPurchase(item)}
-                      </td>
+                      {visible.to_purchase && (
+                        <td
+                          className="text-right font-mono text-sm text-error"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {calculateToPurchase(item)}
+                        </td>
+                      )}
                       {canEdit && (
                         <td onClick={(e) => e.stopPropagation()}>
                           <div className="flex gap-1">
@@ -548,7 +699,13 @@ export default function Inventory() {
                         </td>
                       )}
                     </tr>,
-                    open && <DetailRow key={`detail-${item.id}`} item={item} />,
+                    open && (
+                      <DetailRow
+                        key={`detail-${item.id}`}
+                        item={item}
+                        colSpan={colCount}
+                      />
+                    ),
                   ];
                 })
               )}
@@ -557,7 +714,7 @@ export default function Inventory() {
         </div>
       </div>
 
-      {/* Mobile cards */}
+      {/* Mobile cards — unaffected by column visibility */}
       <div className="md:hidden space-y-3">
         {loading ? (
           <div className="text-center py-12">
@@ -730,32 +887,27 @@ export default function Inventory() {
       </div>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between mt-4 flex-wrap gap-2">
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-base-content/50 font-mono">
-            Page {page} of {pages}
-          </span>
-
-          <div className="flex items-center gap-1">
-            <span className="text-xs text-base-content/40 font-mono hidden sm:inline">
-              Show:
+      {pages > 1 && (
+        <div className="flex items-center justify-between mt-4 flex-wrap gap-2">
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-base-content/50 font-mono">
+              Page {page} of {pages}
             </span>
-
-            {PAGE_SIZE_OPTIONS.map((n) => (
-              <button
-                key={n}
-                className={`btn btn-xs font-mono ${
-                  limit === n ? "btn-primary" : "btn-ghost"
-                }`}
-                onClick={() => setLimit(n)}
-              >
-                {n}
-              </button>
-            ))}
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-base-content/40 font-mono hidden sm:inline">
+                Show:
+              </span>
+              {PAGE_SIZE_OPTIONS.map((n) => (
+                <button
+                  key={n}
+                  className={`btn btn-xs font-mono ${limit === n ? "btn-primary" : "btn-ghost"}`}
+                  onClick={() => setLimit(n)}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-
-        {pages > 1 && (
           <div className="join">
             <button
               className="join-item btn btn-sm"
@@ -764,7 +916,6 @@ export default function Inventory() {
             >
               <ChevronLeft size={14} />
             </button>
-
             <button
               className="join-item btn btn-sm"
               disabled={page >= pages}
@@ -773,8 +924,8 @@ export default function Inventory() {
               <ChevronRight size={14} />
             </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {modal && (
         <InventoryModal

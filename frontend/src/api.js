@@ -7,12 +7,22 @@ async function request(path, options = {}) {
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
     ...options.headers,
   };
+
   const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+
+  // Session expired or invalid token
   if (res.status === 401) {
     localStorage.removeItem("sp_token");
     window.location.href = "/login";
     return;
   }
+
+  // Rate limited
+  if (res.status === 429) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || "Too many requests. Please slow down.");
+  }
+
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     if (body.errors) {
@@ -22,6 +32,7 @@ async function request(path, options = {}) {
     }
     throw new Error(body.error || `Request failed (${res.status})`);
   }
+
   return res.json();
 }
 

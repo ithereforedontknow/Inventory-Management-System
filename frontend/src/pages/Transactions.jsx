@@ -84,7 +84,15 @@ function TypeBadge({ type, size = 10 }) {
 
 function TransactionModal({ tx, onClose, onSaved }) {
   const [form, setForm] = useState(
-    tx ? { ...tx, date: tx.date?.substring(0, 10) } : { ...EMPTY_FORM },
+    tx
+      ? {
+          ...tx,
+          date: tx.date?.substring(0, 10) ?? "",
+          invoice_number: tx.invoice_number ?? "",
+          notes: tx.notes ?? "",
+          supplier_name: tx.supplier_name ?? "",
+        }
+      : { ...EMPTY_FORM },
   );
   const [inventoryList, setInventoryList] = useState([]);
   const [saving, setSaving] = useState(false);

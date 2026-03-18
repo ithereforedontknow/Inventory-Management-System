@@ -231,8 +231,15 @@ router.put("/:id", requireRole("manager"), async (req, res) => {
       changes.type = [existing.transaction_type, transaction_type];
     if (parseInt(existing.quantity) !== parseInt(quantity))
       changes.quantity = [existing.quantity, parseInt(quantity)];
-    if (existing.date?.substring(0, 10) !== date)
-      changes.date = [existing.date?.substring(0, 10), date];
+    // Convert existing.date to a 'YYYY-MM-DD' string safely
+    const existingDateStr =
+      existing.date instanceof Date
+        ? existing.date.toISOString().split("T")[0]
+        : existing.date?.toString().substring(0, 10);
+
+    if (existingDateStr !== date) {
+      changes.date = [existingDateStr, date];
+    }
 
     const [[newItem]] = await pool.query(
       "SELECT name FROM inventory_items WHERE id = ?",
